@@ -1,0 +1,6 @@
+# Web backend deps. The v2.* modules (data / responders / moneyflow / broker)
+# come from the repo itself — run with PYTHONPATH pointed at the repo root, or
+# inside the project's poetry env which already has them.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2

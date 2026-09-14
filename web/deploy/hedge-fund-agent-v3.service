@@ -1,0 +1,19 @@
+[Unit]
+Description=AI Hedge Fund Agent V3 (isolated LangGraph runtime)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/market-intelligence-workbench
+EnvironmentFile=/root/market-intelligence-workbench/.env
+EnvironmentFile=/etc/hedge-fund/web.env
+Environment=AGENT_V3_WEB_ENABLED=1
+Environment=AGENT_V3_DATA_DIR=/root/market-intelligence-workbench/data/agent_v3/web
+ExecStart=/root/market-intelligence-workbench/.venv-agent-v3/bin/python -m uvicorn agent-v3-server:app --app-dir /root/market-intelligence-workbench/web/deploy --host 127.0.0.1 --port 8104
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

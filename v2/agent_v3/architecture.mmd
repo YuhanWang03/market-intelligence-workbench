@@ -1,0 +1,44 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	classify(classify)
+	plan(plan)
+	execute(execute)
+	web_fallback(web_fallback)
+	synthesize(synthesize)
+	verify(verify)
+	repair(repair)
+	fallback(fallback)
+	debate(debate)
+	finish(finish)
+	confirmation(confirmation)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> classify;
+	classify -.-> finish;
+	classify -.-> plan;
+	classify -.-> synthesize;
+	confirmation -.-> execute;
+	confirmation -.-> finish;
+	debate --> finish;
+	execute -.-> finish;
+	execute -.-> web_fallback;
+	fallback --> finish;
+	plan -.-> confirmation;
+	plan -.-> execute;
+	plan -.-> finish;
+	repair --> verify;
+	synthesize -.-> fallback;
+	synthesize -.-> verify;
+	verify -.-> debate;
+	verify -.-> fallback;
+	verify -.-> finish;
+	verify -.-> repair;
+	web_fallback --> synthesize;
+	finish --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

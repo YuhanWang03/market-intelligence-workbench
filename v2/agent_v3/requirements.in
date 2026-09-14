@@ -1,0 +1,11 @@
+# Isolated V3 environment; do not install over the root Poetry environment.
+langgraph>=1,<2
+langchain>=1,<2
+langchain-openai>=1,<2
+langgraph-checkpoint-sqlite>=3,<4
+jsonschema>=4,<5
+python-dotenv>=1,<2
+requests>=2,<3
+markdown-it-py>=3,<5
+tzdata
+pytest>=8,<9

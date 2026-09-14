@@ -1,0 +1,26 @@
+.research-page .research-title { display:flex; align-items:center; gap:9px; }
+.research-page .research-info-button { display:inline-flex; flex:none; align-items:center; justify-content:center; width:28px; height:28px; padding:4px; border:0; border-radius:50%; background:transparent; color:#8296b2; cursor:pointer; }
+.research-info-button>span { display:flex; align-items:center; justify-content:center; width:17px; height:17px; border:1.4px solid currentColor; border-radius:50%; font:600 12px/1 Georgia,serif; }
+.research-page .research-info-button:hover { color:#2e6cd7; background:#eaf1fd; }
+.research-help-dialog { margin:auto; padding:0; width:min(640px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); border:1px solid #dfe7f2; border-radius:16px; color:#33465e; background:#fff; box-shadow:0 24px 90px #132d5040; overflow:auto; font-size:13px; text-align:left; }
+.research-help-dialog::backdrop { background:rgb(15 28 48 / 42%); backdrop-filter:blur(3px); }
+.research-help-dialog header { display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:1; background:#fff; padding:20px 24px; border-bottom:1px solid #eaf0f7; }
+.research-help-dialog header span { font-size:11px; color:#8798af; }
+.research-help-dialog header h2 { margin:4px 0 0; font-size:20px; color:#26374e; }
+.research-help-dialog header button { display:flex; justify-content:center; align-items:center; width:32px; height:32px; border:0; border-radius:8px; background:#f1f5fa; color:#71849d; font-size:23px; cursor:pointer; }
+.research-help-dialog header button:hover { background:#e6eefb; color:#2e6cd7; }
+.research-help-content { padding:4px 24px 20px; }
+.research-help-content .research-help-intro { padding:16px 0 4px; color:#4c6585; }
+.research-help-billing { margin-top:16px; border:1px solid #e5ecf5; border-radius:9px; padding:12px 14px; }
+.research-help-billing>summary { cursor:pointer; font-size:12px; color:#57779e; }
+.research-help-billing>summary:focus-visible { outline:2px solid #6b9eea; outline-offset:3px; }
+.research-help-billing section:last-child { border-bottom:0; padding-bottom:0; }
+.research-help-content section { padding:16px 0; border-bottom:1px solid #edf1f7; }
+.research-help-content h3 { display:flex; align-items:center; gap:10px; margin:0 0 8px; font-size:13px; font-weight:650; }
+.research-help-content h3 span { color:#94acd0; font-size:10px; font-variant-numeric:tabular-nums; }
+.research-help-content p { margin:0; color:#6a7d96; font-size:12px; line-height:1.9; }
+.research-help-content aside { padding:13px 15px; margin-top:16px; border-radius:9px; background:#f5f8fd; }
+.research-help-content aside strong { display:block; margin-bottom:5px; font-size:12px; color:#59759b; }
+.research-help-dialog footer { padding:14px 24px; border-top:1px solid #eaf0f7; background:#fafbfd; color:#8998ac; font-size:11px; line-height:1.7; }
+.research-page .research-info-button:focus-visible,.research-help-dialog button:focus-visible { outline:2px solid #6b9eea; outline-offset:3px; }
+@media(max-width:600px) { .research-help-dialog { max-height:calc(100dvh - 24px); } .research-help-dialog header { padding:16px 18px; } .research-help-content { padding:0 18px 16px; } .research-help-dialog footer { padding:12px 18px; } }

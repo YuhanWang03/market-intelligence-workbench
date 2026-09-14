@@ -1,0 +1,129 @@
+.cost-page.unified-costs { display:grid; align-content:start; gap:16px; padding:22px 24px 32px; font-size:13px; line-height:1.5; }
+.unified-costs .page-heading .run-button { width:auto; flex:none; }
+.unified-costs .cost-summary-grid small { display:block; margin-top:10px; color:#75859e; font-size:12px; }
+.unified-costs .cost-summary-grid .currency-total { font-size:24px; margin-top:8px; overflow-wrap:anywhere; }
+.currency-line { display:block; font-size:14px; white-space:nowrap; line-height:1.8; }
+.unified-costs .cost-breakdown small { display:block; margin-top:6px; }
+.unified-costs select,.unified-costs input { padding:9px 12px; border:1px solid #dce5f2; border-radius:8px; background:white; color:#334155; min-width:0; }
+.usage-list details { border-top:1px solid #e7edf5; }
+.usage-list summary { cursor:pointer; display:grid; grid-template-columns:1.5fr 1fr auto; align-items:center; gap:20px; padding:16px 20px; font-size:14px; }
+.usage-list summary small { display:block; color:#75859e; font-size:12px; margin-top:5px; overflow-wrap:anywhere; }
+.usage-list summary strong { color:#2863c4; }
+.usage-list summary .pending-cost { color:#a16c12; }
+.usage-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; border-top:1px solid #e4eaf2; color:#7c8da5; font-size:12px; }
+.usage-pagination div { display:flex; gap:8px; }
+.usage-pagination button { min-width:68px; }
+.cost-channel { display:inline-block; margin-right:10px; padding:2px 8px; border-radius:12px; background:#edf3ff; color:#3868b0; font-size:12px; }
+.usage-detail { padding:0 20px 16px; font-size:13px; color:#657791; overflow-wrap:anywhere; }
+.price-editor { padding:18px 20px; }
+.price-editor summary { font-size:14px; cursor:pointer; color:#2863c4; }
+.price-editor form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; margin-top:18px; }
+.price-editor label { display:grid; gap:6px; font-size:13px; color:#657791; }
+.price-editor .price-source { grid-column:1/-1; }
+.price-editor button { padding:10px; border-radius:8px; background:#2f6eeb; color:white; }
+.cost-price-list>div { display:grid; gap:6px; padding:14px 20px; border-top:1px solid #e7edf5; font-size:13px; }
+.cost-price-list span,.cost-price-list small { color:#75859e; }
+.unified-costs .cost-note { font-size:13px; line-height:1.8; }
+@media(max-width:760px) { .price-editor form { grid-template-columns:1fr; } .usage-list summary { grid-template-columns:1fr auto; gap:12px; } .usage-list summary>span:first-child { grid-column:1/-1; } }
+
+/* Scoped overrides prevent global research-card typography leaking into the ledger. */
+.unified-costs .billing-token-grid { display:flex; flex-wrap:wrap; gap:8px 18px; margin:10px 0 16px; padding:12px; border-radius:8px; background:#f6f9fd; font-variant-numeric:tabular-nums; }
+.unified-costs .billing-token-grid>strong,.unified-costs .billing-token-grid>p { flex-basis:100%; }
+.unified-costs .billing-reasons { border-left:3px solid #d6ae6b; padding:10px 14px; margin-bottom:18px; background:#fffbf4; }
+.unified-costs .page-heading { align-items:center; margin:0 0 4px; }
+.unified-costs .page-heading .eyebrow { display:block; margin-bottom:4px; color:#8290a4; font-size:11px; letter-spacing:.06em; }
+.unified-costs .page-heading h1 { font-size:24px; margin:0 0 5px; }
+.unified-costs .page-heading p { font-size:12px; color:#718096; }
+.unified-costs button { cursor:pointer; border:1px solid #dce5f2; border-radius:8px; padding:7px 12px; background:#fff; color:#466282; font-size:12px; }
+.unified-costs button:hover { border-color:#9bb9e8; background:#f5f8ff; }
+.unified-costs button:disabled { cursor:wait; opacity:.6; }
+.unified-costs .page-heading .run-button { height:36px; background:#2f6eeb; color:#fff; border:0; }
+.unified-costs :is(button,summary,select,input):focus-visible { outline:2px solid #6097ed; outline-offset:3px; }
+.unified-costs .surface { min-width:0; border-color:#e0e7f0; border-radius:12px; overflow:hidden; }
+.unified-costs .cost-summary-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin:0; }
+.unified-costs .cost-summary-grid section { padding:16px 18px; }
+.unified-costs .cost-summary-grid .metric-label { font-size:12px; color:#6c7e96; margin-bottom:12px; }
+.unified-costs .currency-metric { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:5px 0; font-variant-numeric:tabular-nums; }
+.unified-costs .currency-metric>span { color:#7c8da5; font-size:10px; letter-spacing:.04em; }
+.unified-costs .currency-metric>strong { margin:0; font-size:22px; font-weight:650; line-height:1.3; overflow-wrap:anywhere; text-align:right; }
+.unified-costs .currency-metric+.currency-metric { border-top:1px solid #f0f3f8; margin-top:5px; padding-top:9px; }
+.unified-costs .cost-basis { margin:-6px 2px 0; color:#8793a5; font-size:11px; }
+.unified-costs .cost-ledger-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:16px; }
+.unified-costs .cost-ledger-left { display:grid; gap:16px; min-width:0; }
+.unified-costs .cost-overview { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(260px,1fr); align-items:start; gap:16px; margin:0; }
+.unified-costs .engine-card { margin:0; }
+.unified-costs .surface-header { padding:14px 18px; min-height:64px; gap:12px; }
+.unified-costs .surface-header h2 { margin:0 0 3px; font-size:14px; font-weight:650; }
+.unified-costs .surface-header>div>span { color:#8391a5; font-size:11px; }
+.unified-costs .cost-breakdown>div { grid-template-columns:minmax(0,1fr) minmax(110px,auto) 75px; align-items:center; gap:14px; padding:14px 18px; font-size:12px; }
+.unified-costs .cost-breakdown>div:last-child { border-bottom:0; }
+.unified-costs .cost-breakdown small { color:#8391a5; font-size:10px; margin:4px 0 0; }
+.unified-costs .cost-breakdown>div>span small { text-align:left; }
+.unified-costs .cost-breakdown>div>strong { text-align:right; }
+.unified-costs .currency-line { font-size:12px; font-weight:600; font-variant-numeric:tabular-nums; }
+.unified-costs .cost-note { padding:16px 18px; font-size:12px; line-height:1.8; color:#748399; overflow-wrap:anywhere; }
+.unified-costs .cost-note p { margin:0 0 10px; }
+.unified-costs .cost-note p:last-child { margin-bottom:0; }
+.unified-costs .cost-note h3 { font-size:14px; color:#33465e; margin:0 0 10px; }
+.unified-costs .cost-note small { font-size:11px; }
+.unified-costs select,.unified-costs input { padding:7px 10px; font-size:12px; }
+.unified-costs .usage-columns, .unified-costs .usage-list summary { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr) minmax(100px,.55fr); align-items:center; gap:18px; padding:13px 18px; }
+.unified-costs .usage-columns { background:#f8fafc; color:#8b98a9; font-size:10px; padding-top:9px; padding-bottom:9px; }
+.unified-costs .usage-columns>span:last-child { text-align:right; }
+.unified-costs .usage-list summary { font-size:12px; color:#43546c; list-style:none; font-variant-numeric:tabular-nums; }
+.unified-costs .usage-list summary::-webkit-details-marker { display:none; }
+.unified-costs .usage-list summary:hover, .unified-costs .usage-list details[open]>summary { background:#f7faff; }
+.unified-costs .usage-list summary>span { min-width:0; overflow-wrap:anywhere; }
+.unified-costs .usage-list summary small { color:#8694a8; font-size:10px; margin-top:4px; }
+.unified-costs .usage-list summary strong { color:#365b8b; font-size:12px; text-align:right; overflow-wrap:anywhere; }
+.unified-costs .usage-list summary strong::after { content:' ›'; color:#a0b0c5; margin-left:5px; }
+.unified-costs .usage-list details[open]>summary strong::after { content:' ⌄'; }
+.unified-costs .usage-list summary .pending-cost { color:#a7772c; font-size:11px; font-weight:500; }
+.unified-costs .cost-channel { margin-right:9px; padding:2px 7px; border-radius:5px; background:#edf3fc; color:#547bad; font-size:10px; }
+.unified-costs .usage-detail { margin:0 18px 14px; padding:12px 14px; border-radius:8px; background:#f6f8fc; font-size:11px; line-height:1.7; }
+.unified-costs .usage-detail p { margin:3px 0; }
+.unified-costs #cost-recent .usage-list { max-height:640px; overflow:auto; }
+.unified-costs .fee-service-list>article { padding:18px; border-top:1px solid #ebeff4; }
+.unified-costs .fee-service-list>article:first-child { border-top:0; }
+.unified-costs .fee-service-list article>div:first-child { display:grid; gap:3px; margin-bottom:13px; }
+.unified-costs .fee-service-list strong { color:#24344a; font-size:13px; }
+.unified-costs .fee-service-list small { color:#8391a5; font-size:10px; }
+.unified-costs .fee-rate { display:grid; gap:5px; margin-top:9px; padding:12px; border-radius:8px; background:#f6f9fd; color:#63748b; font-size:11px; }
+.unified-costs .fee-rate b { color:#365b8b; font-size:12px; }
+.unified-costs .merged-billing { border-top:1px solid #e4eaf2; }
+.unified-costs .merged-billing-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px 0; }
+.unified-costs .merged-billing-head h3 { margin:0 0 3px; color:#24344a; font-size:13px; }
+.unified-costs .merged-billing-head span { color:#8391a5; font-size:10px; }
+.unified-costs .merged-billing .cost-note { padding-top:12px; }
+.unified-costs .merged-billing .price-editor { margin-top:12px; padding:12px 0 0; border-top:1px solid #e4eaf2; }
+.unified-costs .merged-billing .price-editor form { grid-template-columns:1fr; }
+.unified-costs .fee-sync-note { margin:0 18px 18px; padding:14px; border-radius:8px; background:#eef7f3; color:#617a72; font-size:11px; }
+.unified-costs .fee-sync-note p { margin:5px 0; }
+.unified-costs .insufficient-note { padding:20px 18px; margin:0; font-size:12px; color:#8b98a9; }
+.unified-costs .cost-settings>summary { display:flex; cursor:pointer; list-style:none; border-bottom:0; }
+.unified-costs .cost-settings>summary::-webkit-details-marker { display:none; }
+.unified-costs .cost-settings[open]>summary { border-bottom:1px solid #ebeff4; }
+.unified-costs .sync-pill { font-size:10px; color:#917139; background:#fff8eb; padding:4px 9px; border-radius:6px; }
+.unified-costs .sync-pill.ok { color:#538475; background:#eef7f3; }
+.unified-costs .price-editor summary { font-size:12px; }
+.unified-costs .price-editor label { font-size:11px; }
+.unified-costs .price-editor button { background:#2f6eeb; color:white; }
+.unified-costs .cost-price-list { max-height:300px; overflow:auto; }
+.unified-costs .cost-price-list>div { gap:4px; padding:12px 18px; font-size:11px; overflow-wrap:anywhere; }
+.unified-costs .cost-price-list span,.unified-costs .cost-price-list small { font-size:10px; }
+@media(max-width:1100px) {
+  .unified-costs .cost-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .unified-costs .cost-overview,.unified-costs .cost-ledger-grid { grid-template-columns:1fr; }
+}
+@media(max-width:760px) {
+  .cost-page.unified-costs { padding:14px 12px 24px; gap:12px; }
+  .unified-costs .page-heading p { max-width:220px; }
+  .unified-costs .cost-summary-grid section { padding:12px; }
+  .unified-costs .currency-metric>strong { font-size:18px; }
+  .unified-costs .cost-breakdown>div { grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+  .unified-costs .cost-breakdown>div>small { grid-column:1/-1; text-align:left; margin:0; }
+  .unified-costs .usage-columns { display:none; }
+  .unified-costs .usage-list summary { grid-template-columns:minmax(0,1fr) auto; gap:10px; }
+  .unified-costs .usage-list summary>span:first-child { grid-column:1/-1; }
+  .unified-costs .sync-pill { max-width:110px; }
+}

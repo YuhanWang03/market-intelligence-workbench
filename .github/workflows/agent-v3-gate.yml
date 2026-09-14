@@ -1,0 +1,25 @@
+name: agent-v3-gate
+
+on:
+  push:
+    branches: [main]
+    paths: ["v2/agent_v3/**", "v2/agent_v2/**", "v2/agent_common/**", "v2/agent_eval/**", ".github/workflows/agent-v3-gate.yml"]
+  pull_request:
+    paths: ["v2/agent_v3/**", "v2/agent_v2/**", "v2/agent_common/**", "v2/agent_eval/**", ".github/workflows/agent-v3-gate.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r v2/agent_v3/requirements.lock
+      - run: python -m pip check
+      - run: python -m pytest v2/agent_v3/tests v2/agent_common -q -p no:cacheprovider
+      - run: python -m v2.agent_v3 --demo

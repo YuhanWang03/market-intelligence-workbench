@@ -1,0 +1,51 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.venv-*/
+*.egg-info/
+build/
+dist/
+
+# Runtime state (root-level only; do not ignore v2/data source code)
+/data/
+/logs/
+/scratchpad/
+*.log
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Frontend
+node_modules/
+.next/
+.vinext/
+.wrangler/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE and OS
+.idea/
+.vscode/
+.cursor/
+.claude/
+.DS_Store
+Thumbs.db
+
+# Deployment bundles and generated outputs
+outputs/
+*.tar.gz
+
