@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from threading import RLock
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -22,6 +22,12 @@ from app.auth import (
     verify_admin_credentials,
 )
 from app.config import SETTINGS
+from app.chart_snapshots import (
+    DEFAULT_PRICE_RANGES,
+    chart_snapshot_status,
+    publish_holding_chart_snapshots,
+    reserve_chart_snapshot_refresh,
+)
 from app.public_snapshots import latest_snapshot_time, publish_snapshot, read_snapshot
 
 
@@ -40,6 +46,11 @@ class LoginInput(BaseModel):
 class SnapshotInput(BaseModel):
     path: str = Field(min_length=1, max_length=2048)
     payload: Any
+
+
+class ChartSnapshotRefreshInput(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=50)
+    ranges: list[str] = Field(default_factory=lambda: list(DEFAULT_PRICE_RANGES), min_length=1, max_length=6)
 
 
 def _client_key(request: Request) -> str:
@@ -140,3 +151,25 @@ async def get_public_snapshot(path: str, _: Principal = Depends(require_access))
     if snapshot is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="public snapshot has not been published yet")
     return snapshot
+
+
+@router.post("/public/snapshot/price-history/refresh")
+async def refresh_price_history_snapshots(
+    body: ChartSnapshotRefreshInput,
+    background_tasks: BackgroundTasks,
+    _: Principal = Depends(require_owner),
+) -> dict:
+    symbols = list(dict.fromkeys(symbol.strip().upper() for symbol in body.symbols if symbol.strip()))
+    ranges = list(dict.fromkeys(range_key.strip().upper() for range_key in body.ranges if range_key.strip()))
+    invalid_ranges = [range_key for range_key in ranges if range_key not in DEFAULT_PRICE_RANGES]
+    if not symbols or invalid_ranges:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid symbols or price ranges")
+    started, state = reserve_chart_snapshot_refresh(symbols, ranges)
+    if started:
+        background_tasks.add_task(publish_holding_chart_snapshots, symbols, ranges)
+    return {"started": started, **state}
+
+
+@router.get("/public/snapshot/price-history/status")
+async def price_history_snapshot_status(_: Principal = Depends(require_owner)) -> dict:
+    return chart_snapshot_status()

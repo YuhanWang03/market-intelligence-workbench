@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from app import auth, public_snapshots
+from app import auth, chart_snapshots, public_snapshots
 from app.auth import require_owner
 from app.main import enforce_site_access
 from app.routers import access
@@ -109,3 +109,37 @@ def test_global_firewall_blocks_guest_from_accidentally_unprotected_api(monkeypa
     assert client.post("/api/auth/logout", json={}).status_code == 200
     assert client.post("/api/auth/login", json={"username": "owner", "password": "owner-secret-value"}).status_code == 200
     assert client.get("/api/future-provider-route").json() == {"provider_called": True}
+
+
+def test_owner_can_queue_holding_chart_snapshots_but_guest_cannot(monkeypatch, tmp_path):
+    client = _client(monkeypatch, tmp_path)
+    calls = []
+    monkeypatch.setattr(access, "reserve_chart_snapshot_refresh", lambda symbols, ranges: (True, {
+        "status": "running", "total": len(symbols) * len(ranges), "published": 0, "failed": 0,
+    }))
+    monkeypatch.setattr(access, "publish_holding_chart_snapshots", lambda symbols, ranges: calls.append((symbols, ranges)))
+    assert client.post("/api/auth/guest", json={}).status_code == 200
+    assert client.post("/api/public/snapshot/price-history/refresh", json={"symbols": ["IVV"]}).status_code == 403
+    assert client.post("/api/auth/logout", json={}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "owner", "password": "owner-secret-value"}).status_code == 200
+    response = client.post("/api/public/snapshot/price-history/refresh", json={"symbols": ["ivv", "IVV"], "ranges": ["3m"]})
+    assert response.status_code == 200
+    assert response.json()["started"] is True
+    assert calls == [(["IVV"], ["3M"])]
+
+
+def test_chart_snapshot_worker_publishes_each_symbol_range(monkeypatch, tmp_path):
+    from app.routers import portfolio
+
+    settings = _settings(tmp_path)
+    monkeypatch.setattr(public_snapshots, "SETTINGS", settings)
+    monkeypatch.setattr(portfolio, "_fetch_price_history", lambda symbol, range_key, extended: {
+        "symbol": symbol, "range": range_key, "includesExtendedHours": extended,
+    })
+    chart_snapshots.reserve_chart_snapshot_refresh(["ivv"], ["1m", "3m"])
+    chart_snapshots.publish_holding_chart_snapshots(["ivv"], ["1m", "3m"])
+    one_month = public_snapshots.read_snapshot("/api/price-history/IVV?extended=false&range=1M")
+    three_month = public_snapshots.read_snapshot("/api/price-history/IVV?range=3M&extended=false")
+    assert one_month and one_month["payload"]["range"] == "1M"
+    assert three_month and three_month["payload"]["range"] == "3M"
+    assert chart_snapshots.chart_snapshot_status()["published"] == 2
