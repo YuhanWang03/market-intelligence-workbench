@@ -16,17 +16,27 @@ Agent V2 是 Market Intelligence Workbench 当前默认的证据优先执行管�
 
 ## 执行流程
 
-```text
-用户请求
-  → 上下文与实体解析
-  → 意图分类与预算选择
-  → 依赖感知计划
-  → 能力执行与证据归档
-  → 可选 Web 兜底
-  → 基于证据合成
-  → 引用、数字与冲突校验
-  → 修订或结构化降级
-  → AgentResult
+```mermaid
+flowchart TD
+    A([START]) --> B[resolve_context]
+    B --> C[classify]
+    C --> D[route_budget]
+    D --> E[plan]
+    E --> F{confirmation?}
+    F -- 等待确认 --> Z([END / 可恢复])
+    F -- 无需确认或已确认 --> G[execute]
+    G --> H{evidence sufficient?}
+    H -- 否且允许 --> I[web_fallback]
+    H -- 是 --> J[synthesize]
+    I --> J
+    J --> K[verify]
+    K --> L{验证结果}
+    L -- 可修复 --> M[bounded_repair / debate]
+    M --> K
+    L -- 证据不足 --> N[structured_fallback]
+    L -- 通过 --> O[finish]
+    N --> O
+    O --> P([END])
 ```
 
 ## 主要目录与文件

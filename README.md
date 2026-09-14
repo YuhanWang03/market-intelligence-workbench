@@ -118,24 +118,26 @@ Agent V2 的目标是：**先理解请求，再规划工具调用；先形成证
 ### 执行流程
 
 ```mermaid
-flowchart LR
-    A[用户请求] --> B[上下文与记忆解析]
-    B --> C[语义意图分类]
-    C --> D[路由与预算选择]
-    D --> E[依赖感知计划]
-    E --> F{是否为写操作}
-    F -- 是 --> G[等待显式确认]
-    F -- 否 --> H[并行执行能力]
-    G --> H
-    H --> I{内部证据是否足够}
-    I -- 否且允许 --> J[受限 Web 兜底]
-    I -- 是 --> K[基于证据合成]
-    J --> K
-    K --> L[引用与数字校验]
-    L --> M{需要修订?}
-    M -- 是 --> N[辩论 / 有界修订]
-    M -- 否 --> O[结构化结果]
+flowchart TD
+    A([START]) --> B[resolve_context]
+    B --> C[classify]
+    C --> D[route_budget]
+    D --> E[plan]
+    E --> F{confirmation?}
+    F -- 等待确认 --> Z([END / 可恢复])
+    F -- 无需确认或已确认 --> G[execute]
+    G --> H{evidence sufficient?}
+    H -- 否且允许 --> I[web_fallback]
+    H -- 是 --> J[synthesize]
+    I --> J
+    J --> K[verify]
+    K --> L{验证结果}
+    L -- 可修复 --> M[bounded_repair / debate]
+    M --> K
+    L -- 证据不足 --> N[structured_fallback]
+    L -- 通过 --> O[finish]
     N --> O
+    O --> P([END])
 ```
 
 ### 稳定契约

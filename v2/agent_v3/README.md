@@ -16,18 +16,26 @@ Agent V3 是 Market Intelligence Workbench 的 LangGraph 智能体运行时。�
 
 ## 状态图
 
-```text
-START
-  → classify
-  → plan
-  → confirmation（需要写操作时）
-  → execute
-  → web_fallback（显式开启时）
-  → synthesize
-  → verify
-  → repair / fallback / debate
-  → finish
-  → END
+```mermaid
+flowchart TD
+    A([START]) --> B[resolve_context]
+    B --> C[classify]
+    C --> D[plan]
+    D --> E{confirmation?}
+    E -- 等待确认 --> Z([END / 可恢复])
+    E -- 无需确认或已确认 --> F[execute]
+    F --> G[web_fallback]
+    G --> H[synthesize]
+    H --> I[verify]
+    I --> J{验证结果}
+    J -- 可修复 --> K[repair]
+    K --> I
+    J -- 证据不足 --> L[deterministic_fallback]
+    J -- 需要对抗审阅 --> M[debate]
+    J -- 通过 --> N[finish]
+    L --> N
+    M --> N
+    N --> O([END])
 ```
 
 实际图定义位于 `graph.py`，仓库同时保留 `architecture.mmd` 便于查看结构。运行时状态使用经过校验的契约对象传递，而不是在节点之间共享任意字典。
