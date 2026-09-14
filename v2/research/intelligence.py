@@ -589,9 +589,15 @@ def build_intelligence(ticker: str, modules: dict[str, dict], company: dict, *, 
         linked = [source_lookup[source_id] for source_id in row["source_ids"] if source_id in source_lookup]
         published = [item.get("published_at") for item in linked if item.get("published_at")]
         fetched = [item.get("fetched_at") for item in linked if item.get("fetched_at")]
+        source_periods = [item.get("data_period") or item.get("period") for item in linked
+                          if item.get("data_period") or item.get("period")]
+        if not source_periods:
+            source_periods = [item.get("published_at") for item in linked
+                              if item.get("published_at") and str(item.get("provider") or "").strip().lower()
+                              not in {"sec", "sec edgar", "edgar"}]
         row.update({"provider": sorted({str(item.get("provider")) for item in linked if item.get("provider")}),
                     # Filing publication dates are not financial reporting periods.
-                    "data_period": row.get("metrics", {}).get("period"),
+                    "data_period": row.get("metrics", {}).get("period") or (max(source_periods) if source_periods else None),
                     "published_at": max(published) if published else None,
                     "fetched_at": max(fetched) if fetched else module.get("generated_at"),
                     "cache_hit": bool(module.get("cache_hit")),

@@ -28,7 +28,22 @@ def classify_statement(text, filing_date='', source_url=None):
     metric = next((key for key in sorted(METRICS, key=len, reverse=True)
                    if re.search(r'\b' + re.escape(key) + r'\b', text, re.I)), None)
     if not metric:
-        return None
+        commentary = re.search(
+            r'\b(?:we|management|the company)\s+(?:currently\s+)?(?:believe|view|consider|see)\b',
+            text,
+            re.I,
+        )
+        if not commentary:
+            return None
+        return {
+            'metric': 'management_commentary', 'metric_label': '管理层评论',
+            'group': 'outlook', 'guidance_type': 'MANAGEMENT_COMMENTARY',
+            'status': 'NOT_COMPARABLE', 'status_label': '管理层定性评论',
+            'direction': 'NOT_COMPARABLE', 'period': None,
+            'period_label': '原文未明确期间', 'value': None, 'range': None,
+            'unit': None, 'evidence_text': text, 'filing_date': filing_date,
+            'source_url': source_url, 'source': 'SEC filing', 'confidence': .45,
+        }
     risk = bool(RISK.search(text))
     if not risk and not OUTLOOK.search(text):
         return None

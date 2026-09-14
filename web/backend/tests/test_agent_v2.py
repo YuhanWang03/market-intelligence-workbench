@@ -37,7 +37,7 @@ def test_agent_v2_web_entrypoint_is_independent_and_web_is_double_gated(monkeypa
     with TestClient(app) as client:
         response = client.post(
             "/api/agent-v2/ask",
-            json={"text": "什么是自由现金流？", "session_id": "browser-1", "allow_web": True},
+            json={"text": "\u4ec0\u4e48\u662f\u81ea\u7531\u73b0\u91d1\u6d41\uff1f", "session_id": "browser-1", "allow_web": True},
         )
     assert response.status_code == 200
     payload = response.json()
@@ -57,7 +57,11 @@ def test_agent_v2_long_request_runs_as_a_pollable_job(monkeypatch):
     with TestClient(app) as client:
         started = client.post(
             "/api/agent-v2/ask",
-            json={"text": "完整报告：回测标普动量策略", "session_id": "job-1"},
+            json={
+                "text": "\u5b8c\u6574\u62a5\u544a\uff1a\u56de\u6d4b\u6807\u666e\u52a8\u91cf\u7b56\u7565",
+                "session_id": "job-1",
+                "background": True,
+            },
         ).json()
         assert started["job_id"]
         final = started
