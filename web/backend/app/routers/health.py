@@ -14,6 +14,8 @@ async def health() -> dict:
     return {
         "status": "ok",
         "service": "ai-hedge-fund-web",
-        "auth_enabled": bool(SETTINGS.owner_token),
+        "auth_enabled": bool(SETTINGS.owner_token or SETTINGS.admin_password_hash),
+        "guest_enabled": SETTINGS.guest_enabled,
+        "session_secret_configured": bool(SETTINGS.session_secret),
         "archive_db_present": SETTINGS.archive_db_path.exists(),
     }

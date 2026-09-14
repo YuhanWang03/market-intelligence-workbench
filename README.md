@@ -333,6 +333,11 @@ Copy-Item .env.example .env
 
 然后在 `.env` 中填写自己拥有的数据源和模型密钥。不要提交 `.env`，也不要在浏览器端暴露 `WEB_OWNER_TOKEN` 或供应商密钥。
 
+首次自托管可使用 `WEB_ADMIN_USERNAME` 配置登录用户名，并优先使用
+`WEB_ADMIN_PASSWORD_HASH` 配置独立的 PBKDF2 密码摘要。尚未配置密码摘要时，
+系统会把 `WEB_OWNER_TOKEN` 临时作为所有者登录密码，便于从旧版本平滑迁移；
+生产环境仍建议尽快改为独立密码摘要与随机 `WEB_SESSION_SECRET`。
+
 ### 3. 安装后端依赖
 
 ```bash
@@ -381,11 +386,24 @@ npm run dev
 | SEC | `EDGAR_IDENTITY`, `SEC_USER_AGENT` | SEC/EDGAR 合规身份标识 |
 | 券商 | `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `APCA_PAPER` | Alpaca 模拟或授权账户 |
 | Telegram | `TELEGRAM_CHAT_ID`, `TELEGRAM_WEB_DEFAULT` | Bot 推送与默认行为 |
-| Web 安全 | `WEB_OWNER_TOKEN` | 受保护接口的所有者令牌 |
+| Web 登录 | `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH`, `WEB_SESSION_SECRET` | 所有者账号、密码摘要和签名会话密钥 |
+| Web 兼容鉴权 | `WEB_OWNER_TOKEN` | 内部进程调用令牌；未设置密码摘要时兼作初始登录密码 |
+| 访客快照 | `WEB_GUEST_ENABLED`, `WEB_PUBLIC_SNAPSHOT_DB` | 启用只读访客入口并设置独立快照库路径 |
 | 功能开关 | `AGENT_V2_WEB_ENABLED`, `AGENT_V3_WEB_ENABLED` | 是否允许智能体使用 Web 兜底 |
 | 状态路径 | `WEB_ARCHIVE_DB`, `WEB_LAB_DB`, `AGENT_V2_SESSION_DB`, `AGENT_V3_DATA_DIR` | 自定义持久化位置 |
 
 没有配置某个付费数据源时，对应能力可能返回部分数据或降级结果，但不应伪造内容。费用页面仅根据实际记录到的 token、credit 和请求量估算，供应商账单仍是最终依据。
+
+## 所有者与访客模式
+
+网页入口提供两种访问方式：
+
+- **所有者登录**：可以刷新实时数据、运行研究与实验、管理监控列表，并使用 Agent V2 / V3。所有可能产生费用或修改状态的能力只向所有者开放。
+- **访客只读**：只能读取所有者最近发布到独立 SQLite 快照库的数据。访客请求不会进入实时行情、模型、搜索、财务数据或券商接口。
+
+所有者在网页中刷新或打开允许公开的页面时，前端会把响应保存为公开快照。盯盘可展示 Paper Account 持仓；研究页的公开快照限定为 NVDA；实验室和花费页只展示已发布结果。访客不能刷新、提交表单、调用智能体或修改监控配置。后端同时设有全局访问拦截，因此隐藏按钮并不是唯一安全措施。
+
+公开 GitHub 仓库只提供源代码和 `.env.example`。其他人可以填入自己的 API Key 独立部署，但无法通过你的公开演示站点消耗你的密钥。快照数据库、真实 `.env` 和会话密钥都不得提交到 Git。
 
 ## 单独运行智能体
 
@@ -501,6 +519,9 @@ GitHub Actions 会分别运行 Agent V2 和 Agent V3 的质量门。新增能力
 - 公开前检查 Git 历史；仅从工作区删除密钥不能清除历史版本中的秘密。
 - 如果密钥曾经进入 Git 历史，应先吊销并轮换，再清理历史。
 - `WEB_OWNER_TOKEN` 仅用于服务端鉴权，不应写入前端 bundle。
+- 不要在浏览器 `localStorage` 保存所有者令牌；网页登录使用签名的 HttpOnly 会话 Cookie。
+- 生产环境应使用独立 `WEB_ADMIN_PASSWORD_HASH`、高强度 `WEB_SESSION_SECRET` 和 HTTPS；启用 HTTPS 后将 `WEB_COOKIE_SECURE=true`。
+- 访客只能读取独立发布快照；新增业务路由仍应显式依赖所有者权限，不能只依靠前端禁用按钮。
 - SEC 抓取必须设置可识别的 `EDGAR_IDENTITY` / `SEC_USER_AGENT` 并遵守访问规则。
 - 实盘交易属于高风险写操作，不应绕过人工确认和券商风控。
 

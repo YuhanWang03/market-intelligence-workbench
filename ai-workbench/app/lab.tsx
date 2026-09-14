@@ -142,7 +142,7 @@ function AddToWatchlist({ ticker, watchlist, onAdded }: { ticker: string; watchl
 type Ask = (prompt: string, context: string) => void;
 type ToolProps = { ask: Ask; selectTool: (t: LabTool) => void; watchlist: Set<string>; refreshWatchlist: () => void };
 
-export function LabPage({ tool, selectTool, ask }: { tool: LabTool; selectTool: (t: LabTool) => void; ask: Ask; askNow?: Ask }) {
+export function LabPage({ readOnly = false, tool, selectTool, ask }: { readOnly?: boolean; tool: LabTool; selectTool: (t: LabTool) => void; ask: Ask; askNow?: Ask }) {
   const [results, setResults] = useState<Partial<Record<string, ToolResult>>>({});
   const [restores, setRestores] = useState<Partial<Record<string, Restore>>>({});
   const [handoff, setHandoff] = useState<Handoff | null>(null);
@@ -161,14 +161,21 @@ export function LabPage({ tool, selectTool, ask }: { tool: LabTool; selectTool: 
     runs: ['运行记录', '所有工具的历史运行，点开可原样重看。'],
   };
   return <div className={`page lab-page lab-big${tool === 'screening' || tool === 'backtest' || tool === 'event-study' ? ' lab-page-fill' : ''}`}>
-    <div className="page-heading"><div><h1>{heading[tool][0]}</h1><p>{heading[tool][1]}</p></div><span className="lab-tag">ISOLATED LAB</span></div>
+    <div className="page-heading"><div><h1>{heading[tool][0]}</h1><p>{heading[tool][1]}</p></div><span className="lab-tag">{readOnly ? '只读快照' : 'ISOLATED LAB'}</span></div>
+    {readOnly && <div className="readonly-page-note">访客可以查看最近发布的实验数据和运行记录，但不能运行、删除、回填、解读或修改任何内容。</div>}
+    <fieldset className="guest-disabled-page" disabled={readOnly}>
     {tool === 'overview' && <OverviewTool {...common}/>}
     {tool === 'screening' && <ScreeningTool {...common} result={results.screening as ScreeningResult | undefined} setResult={r => setResult('screening', r)} onHand={hand} restore={restores.screening}/>}
     {tool === 'committee' && <CommitteeTool {...common} result={results.committee as CommitteeResult | undefined} setResult={r => setResult('committee', r)} handoff={handoff} clearHandoff={() => setHandoff(null)} onHand={hand} restore={restores.committee}/>}
     {tool === 'backtest' && <BacktestTool {...common} result={results.backtest as BacktestPanelResult | undefined} setResult={r => setResult('backtest', r)} handoff={handoff} clearHandoff={() => setHandoff(null)} restore={restores.backtest}/>}
     {tool === 'event-study' && <EventStudyTool {...common} result={results.event_study as EventStudyResult | undefined} setResult={r => setResult('event_study', r)} handoff={handoff} clearHandoff={() => setHandoff(null)} restore={restores.event_study}/>}
     {tool === 'scoreboard' && <ScoreboardTool {...common}/>}
-    {tool === 'runs' && <RunsTool {...common} onOpen={(kind, result, params) => { setResult(kind, result as ToolResult); setRestores(current => ({ ...current, [kind]: { params, nonce: Date.now() } })); selectTool(kind === 'event_study' ? 'event-study' : kind as LabTool) }}/>}
+    {tool === 'runs' && <RunsTool {...common} onOpen={(kind, result, params) => {
+      setResult(kind, result as ToolResult);
+      setRestores(current => ({ ...current, [kind]: { params, nonce: Date.now() } }));
+      selectTool(kind === 'event_study' ? 'event-study' : kind as LabTool);
+    }}/>} {/* Opening a saved run only changes the current panel. */}
+    </fieldset>
   </div>;
 }
 

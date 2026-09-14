@@ -1,11 +1,25 @@
 'use client';
 
-/** Owner-token aware fetch helpers shared by the workbench pages. */
+/** Signed-session and frozen-snapshot fetch helpers shared by the workbench. */
 
-export function authHeaders(): Record<string, string> {
-  const token = typeof window === 'undefined' ? '' : localStorage.getItem('ownerToken') || localStorage.getItem('dashboard:owner_token') || '';
-  return token ? { 'X-Owner-Token': token } : {};
-}
+export type AccessRole = 'unknown' | 'anonymous' | 'owner' | 'guest';
+export type AccessStatus = {
+  authenticated: boolean;
+  role: Exclude<AccessRole, 'unknown'>;
+  username: string;
+  guest_enabled: boolean;
+  auth_configured: boolean;
+  snapshot_updated_at: string | null;
+  session_expires_at: number | null;
+};
+
+type SnapshotEnvelope<T> = { path: string; payload: T; published_at: string; schema_version: number };
+let accessRole: AccessRole = 'unknown';
+
+export function setApiAccessRole(role: AccessRole) { accessRole = role; }
+
+/** Kept for older imports. Browser credentials now live only in HttpOnly cookies. */
+export function authHeaders(): Record<string, string> { return {}; }
 
 export class ApiError extends Error {
   status: number;
@@ -17,14 +31,56 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { cache: 'no-store', ...init, headers: { 'Content-Type': 'application/json', ...authHeaders(), ...((init?.headers as Record<string, string>) || {}) } });
+async function responseJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = '';
     try { const body = await response.json() as { detail?: unknown }; detail = typeof body.detail === 'string' ? body.detail : body.detail ? JSON.stringify(body.detail) : '' } catch { /* non-JSON error body */ }
     throw new ApiError(response.status, detail);
   }
   return response.json() as Promise<T>;
+}
+
+async function rawJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...init, headers: { 'Content-Type': 'application/json', ...((init?.headers as Record<string, string>) || {}) } });
+  return responseJson<T>(response);
+}
+
+function canPublishSnapshot(path: string): boolean {
+  const pathname = path.split('?', 1)[0];
+  const exact = new Set(['/api/portfolio', '/api/risk', '/api/tickertape', '/api/activity', '/api/macro', '/api/history', '/api/flow_status', '/api/recommendations', '/api/monitoring/universe', '/api/watchlist', '/api/price-alerts', '/api/costs', '/api/lab/screening/criteria', '/api/lab/universes', '/api/lab/signals', '/api/lab/runs', '/api/lab/committee/personas', '/api/lab/committee/runs', '/api/lab/committee/scoreboard', '/api/lab/committee/pricing', '/api/research/results/NVDA', '/api/research/history/NVDA', '/api/research/history/NVDA/compare', '/api/research/peers/NVDA']);
+  return exact.has(pathname) || pathname.startsWith('/api/price-history/') || pathname.startsWith('/api/lab/runs/') || pathname.startsWith('/api/lab/committee/runs/');
+}
+
+export async function authStatus(): Promise<AccessStatus> {
+  return rawJson<AccessStatus>('/api/auth/status');
+}
+
+export async function authLogin(username: string, password: string): Promise<AccessStatus> {
+  return rawJson<AccessStatus>('/api/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+}
+
+export async function authGuest(): Promise<AccessStatus> {
+  return rawJson<AccessStatus>('/api/auth/guest', { method: 'POST', body: '{}' });
+}
+
+export async function authLogout(): Promise<void> {
+  await rawJson('/api/auth/logout', { method: 'POST', body: '{}' });
+}
+
+export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const method = String(init?.method || 'GET').toUpperCase();
+  if (accessRole === 'guest') {
+    if (method !== 'GET' || !canPublishSnapshot(path)) throw new ApiError(403, '访客模式为只读，不能执行此操作');
+    const envelope = await rawJson<SnapshotEnvelope<T>>(`/api/public/snapshot?path=${encodeURIComponent(path)}`);
+    return envelope.payload;
+  }
+  const payload = await rawJson<T>(path, init);
+  if (accessRole === 'owner' && method === 'GET' && canPublishSnapshot(path)) {
+    try {
+      await rawJson('/api/public/snapshot', { method: 'POST', body: JSON.stringify({ path, payload }) });
+    } catch { /* A snapshot failure must never break the owner's live request. */ }
+  }
+  return payload;
 }
 
 export type AgentV2Evidence = {

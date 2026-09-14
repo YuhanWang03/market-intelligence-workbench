@@ -16,15 +16,17 @@ import logging
 from importlib.util import find_spec
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.auth import principal_from_request
 from app.config import SETTINGS
 repo_root = str(SETTINGS.repo_root.resolve())
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
 
-from app.routers import agent_v2, chat, committee, dashboard, health, portfolio, research, workspace  # noqa: E402
+from app.routers import access, agent_v2, chat, committee, dashboard, health, portfolio, research, workspace  # noqa: E402
 
 @asynccontextmanager
 async def lifespan(app):
@@ -54,6 +56,24 @@ async def lifespan(app):
 app = FastAPI(title="AI Hedge Fund · Web", version="0.1.0", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def enforce_site_access(request: Request, call_next):
+    """Globally prevent guests from reaching live/provider-backed APIs."""
+    path = request.url.path
+    public_api = (
+        path.startswith("/api/auth/"),
+        path == "/api/health",
+        path == "/api/public/snapshot",
+    )
+    if path.startswith("/api/") and not any(public_api):
+        principal = principal_from_request(request)
+        if principal.role == "anonymous":
+            return JSONResponse(status_code=401, content={"detail": "请先登录或进入访客模式"})
+        if principal.role == "guest":
+            return JSONResponse(status_code=403, content={"detail": "访客模式只能读取已发布快照"})
+    return await call_next(request)
+
+
 @app.middleware('http')
 async def billing_channel(request, call_next):
     from v2.usage_context import usage_channel
@@ -69,6 +89,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(access.router)
 app.include_router(agent_v2.router)
 # The production V3 service has its own environment and reverse-proxy route.
 # Keep the V2/legacy web environment importable without LangGraph installed.
