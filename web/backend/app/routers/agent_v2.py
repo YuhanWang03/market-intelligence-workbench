@@ -9,8 +9,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from app.auth import require_owner
-from fastapi import APIRouter, Depends, HTTPException
+from app.auth import agent_session_id, require_owner
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
@@ -54,7 +54,7 @@ def _get_agent():
 
 class AgentV2Input(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
-    session_id: str = Field(default="web", max_length=128)
+    session_id: str = Field(default="", max_length=128)  # empty: derived per caller, see auth.agent_session_id
     allow_web: bool = False
     background: bool | None = None
 
@@ -166,7 +166,8 @@ def _runs_in_background(body: AgentV2Input) -> bool:
 
 
 @router.post("/ask")
-async def ask_agent_v2(body: AgentV2Input) -> dict[str, Any]:
+async def ask_agent_v2(body: AgentV2Input, request: Request) -> dict[str, Any]:
+    body = body.model_copy(update={"session_id": agent_session_id(request, body.session_id)})
     if _runs_in_background(body):
         return _start_job(body)
     return await run_in_threadpool(_execute, body)

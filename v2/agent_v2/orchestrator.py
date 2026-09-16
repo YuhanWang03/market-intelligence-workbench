@@ -21,6 +21,7 @@ from v2.agent_v2.execution import (
     time_limit,
 )
 from v2.agent_v2.models import (
+    ToolEnvelope,
     BudgetClass,
     AgentResult,
     AnswerMode,
@@ -123,9 +124,11 @@ class AgentV2:
         # the usage ledger, so token use can be read back per question.
         from v2.usage_context import usage_run
 
-        self._cancel_event = cancel_event
+        # Per-run inputs travel as arguments: the agent is a process-wide
+        # singleton under the web thread pool, and an attribute set here was
+        # read by whichever run built its context next.
         with usage_run(run_id):
-            result = self._run(run_id, text, session_id=session_id, allow_web=allow_web, on_progress=on_progress, started=started)
+            result = self._run(run_id, text, session_id=session_id, allow_web=allow_web, on_progress=on_progress, started=started, cancel_event=cancel_event)
         if self.memory is not None and session_id:
             try:
                 self.memory.remember_answer(session_id, question=text, answer=result.answer, run_id=run_id)
@@ -133,13 +136,13 @@ class AgentV2:
                 pass
         return result
 
-    def _run(self, run_id: str, text: str, *, session_id: str, allow_web: bool, on_progress: ProgressSink | None, started: float) -> AgentResult:
+    def _run(self, run_id: str, text: str, *, session_id: str, allow_web: bool, on_progress: ProgressSink | None, started: float, cancel_event: Any = None) -> AgentResult:
         # A pending write is resolved before anything else: "确认" executes it,
         # "取消" drops it, and any other message drops it and proceeds normally.
         pending = self.session.pop_pending(session_id) if self.session is not None and session_id else None
         if pending is not None:
             if _CONFIRM.match(text or ""):
-                return self._execute_confirmed(run_id, pending, session_id, on_progress, started)
+                return self._execute_confirmed(run_id, pending, session_id, on_progress, started, cancel_event=cancel_event)
             if _CANCEL.match(text or ""):
                 request = normalize_request(text, session_id=session_id)
                 decision = RouteDecision(RouteKind.COMMAND, ("command",), "pending mutation cancelled")
@@ -224,7 +227,7 @@ class AgentV2:
                 return self._ask(run_id, request, decision, plan, plan.direct_answer, started, asked_about=text)
             return self._result(run_id, request, decision, plan, RunStatus.COMPLETED if complete else RunStatus.PARTIAL, plan.direct_answer, AnswerMode.GENERAL_KNOWLEDGE if complete else AnswerMode.INSUFFICIENT_EVIDENCE, started)
 
-        context = self._context(run_id, request, plan, on_progress, started)
+        context = self._context(run_id, request, plan, on_progress, started, cancel_event=cancel_event)
         return self._execute(run_id, request, decision, plan, context, on_progress, started)
 
     # -- debate revision ----------------------------------------------------------
@@ -232,29 +235,25 @@ class AgentV2:
     #: Seconds the revision needs; below this the objections are shown, not applied.
     REVISION_MIN_SECONDS = 15.0
 
-    def _revise(self, request, plan, results, evidence, answer: str, debate: ToolEnvelope, context: ExecutionContext) -> str | None:
-        """One rewrite from the debater's objections, when there are any, a model can do it and time remains."""
+    def _revise(self, request, plan, results, evidence, answer: str, debate: "ToolEnvelope", context: ExecutionContext) -> tuple[str | None, str]:
+        """One rewrite from the debater's objections, when there are any, a model can do it and time remains.
+
+        Returns ``(revised_answer, reason)``: the answer is ``None`` when no
+        revision was applied and the reason says why.
+        """
 
         objections = list(debate.metadata.get("objections") or [])
         revise = getattr(self.synthesizer, "revise", None)
         if not objections or not callable(revise) or not self.config.debate_revision:
-            return None
+            return None, ""
         if context.remaining_seconds() < self.REVISION_MIN_SECONDS and getattr(context, "deadline", None) is not None:
-            self._revision_note = "剩余时间不足"
-            return None
-        self._revision_note = ""
+            return None, "剩余时间不足"
         try:
             revised = revise(request, plan, results, evidence, answer, objections)
         except Exception as exc:  # noqa: BLE001 — a failed revision leaves the answer as it was
             logger.warning("debate revision failed: %s: %s", type(exc).__name__, exc)
-            self._revision_note = f"修订出错（{type(exc).__name__}）"
-            return None
-        if revised is None:
-            self._revision_note = "修订稿未通过校验"
-        return revised
-
-    def _revision_reason(self) -> str:
-        return str(getattr(self, "_revision_note", "") or "")
+            return None, f"修订出错（{type(exc).__name__}）"
+        return revised, ("" if revised is not None else "修订稿未通过校验")
 
     # -- intent ledger ----------------------------------------------------------
 
@@ -333,22 +332,22 @@ class AgentV2:
             answer = f"将执行写操作：{mutation.description}。该渠道没有会话，无法接收确认；当前没有执行任何修改。"
         return self._result(run_id, request, decision, plan, RunStatus.WAITING_CONFIRMATION, answer, AnswerMode.TOOL_GROUNDED, started, pending_mutation=mutation)
 
-    def _execute_confirmed(self, run_id, plan: ExecutionPlan, session_id: str, on_progress, started) -> AgentResult:
+    def _execute_confirmed(self, run_id, plan: ExecutionPlan, session_id: str, on_progress, started, *, cancel_event: Any = None) -> AgentResult:
         request = normalize_request(plan.objective, session_id=session_id, metadata={"confirmed_mutation": True})
         decision = RouteDecision(RouteKind.COMMAND, ("command",), "user confirmed a pending mutation")
-        context = self._context(run_id, request, plan, on_progress, started, allow_mutations=True)
+        context = self._context(run_id, request, plan, on_progress, started, allow_mutations=True, cancel_event=cancel_event)
         return self._execute(run_id, request, decision, plan, context, on_progress, started)
 
     # -- execution ------------------------------------------------------------
 
-    def _context(self, run_id, request, plan, on_progress, started, *, allow_mutations: bool | None = None) -> ExecutionContext:
+    def _context(self, run_id, request, plan, on_progress, started, *, allow_mutations: bool | None = None, cancel_event: Any = None) -> ExecutionContext:
         limit = self.config.max_seconds if self.config.max_seconds is not None else time_limit(plan.budget)
         elapsed = time.time() - started
         return ExecutionContext(
             run_id=run_id,
             request=request,
             budget=plan.budget,
-            cancel_event=getattr(self, "_cancel_event", None),
+            cancel_event=cancel_event,
             allow_mutations=self.config.allow_mutations if allow_mutations is None else allow_mutations,
             allow_web=request.allow_web,
             on_progress=on_progress,
@@ -405,13 +404,13 @@ class AgentV2:
         debate = self._debate(request, decision, plan, answer, evidence, results, context)
         if debate is not None:
             results = [*results, debate]
-            revised = self._revise(request, plan, results, evidence, answer, debate, context) if self.config.debate_revision else None
+            revised, revision_reason = self._revise(request, plan, results, evidence, answer, debate, context) if self.config.debate_revision else (None, "")
             if revised is not None:
                 answer = revised
                 verification = verify_answer(answer, evidence, answer_mode=answer_mode, results=results, judge=getattr(self.synthesizer, "judge", None))
                 synthesis = {**self._synthesis_diagnostics(), "debate_revision": {"applied": True, "objections": len(debate.metadata.get("objections") or [])}}
             elif self.config.debate_revision and debate.metadata.get("objections"):
-                synthesis = {**synthesis, "debate_revision": {"applied": False, "objections": len(debate.metadata.get("objections") or []), "reason": self._revision_reason()}}
+                synthesis = {**synthesis, "debate_revision": {"applied": False, "objections": len(debate.metadata.get("objections") or []), "reason": revision_reason}}
         knowledge_unavailable = not results and decision.kind == RouteKind.GENERAL_KNOWLEDGE and not bool(getattr(self.synthesizer, "supports_general_knowledge", False))
         if outcome.stop_reason == "cancelled":
             status = RunStatus.CANCELLED

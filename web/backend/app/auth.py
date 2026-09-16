@@ -134,6 +134,24 @@ def principal_from_request(request: Request, x_owner_token: str | None = None) -
     return decode_session_token(session) or Principal(role="anonymous")
 
 
+def agent_session_id(request: Request, requested: str = "") -> str:
+    """The conversation key an agent uses when the caller names none.
+
+    The browser names one per tab; scripts and older clients often do not, and
+    a shared default key ("web") let every such caller share one pending
+    confirmation, clarification and evidence frame.  A signed-in browser
+    session maps to a stable key derived from its cookie; anything else gets
+    a fresh key per request.
+    """
+    requested = (requested or "").strip()
+    if requested:
+        return requested
+    cookie = request.cookies.get(SESSION_COOKIE, "")
+    if cookie:
+        return "web:" + hashlib.sha256(cookie.encode("utf-8")).hexdigest()[:16]
+    return "web:" + secrets.token_hex(6)
+
+
 async def require_owner(request: Request, x_owner_token: str | None = Header(default=None)) -> Principal:
     principal = principal_from_request(request, x_owner_token)
     if principal.role != "owner":

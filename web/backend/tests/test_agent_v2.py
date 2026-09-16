@@ -107,6 +107,25 @@ def test_research_requests_default_to_a_pollable_job(monkeypatch):
     assert fake.calls[0][1]["session_id"] == "browser-2"
 
 
+def test_callers_without_a_session_id_do_not_share_one(monkeypatch):
+    """Two browser sessions (cookies) get distinct stable keys; cookieless calls get a fresh key each time."""
+    fake = _Agent()
+    monkeypatch.setattr(agent_v2, "_AGENT", fake)
+    monkeypatch.setattr(agent_v2, "_AGENT_WEB_ENABLED", False)
+    monkeypatch.delenv("AGENT_V2_WEB_ENABLED", raising=False)
+    body = {"text": "\u4ec0\u4e48\u662f\u81ea\u7531\u73b0\u91d1\u6d41\uff1f", "background": False}
+    with TestClient(app) as client:
+        for _ in range(2):
+            client.post("/api/agent-v2/ask", json=body, cookies={"workbench_session": "cookie-a"})
+        client.post("/api/agent-v2/ask", json=body, cookies={"workbench_session": "cookie-b"})
+        for _ in range(2):
+            client.post("/api/agent-v2/ask", json=body)
+    keys = [call[1]["session_id"] for call in fake.calls]
+    assert keys[0] == keys[1] and keys[0].startswith("web:")
+    assert keys[2] != keys[0]
+    assert keys[3] != keys[4] and "web" not in {keys[3], keys[4]}
+
+
 def test_explicit_background_false_keeps_a_research_request_inline(monkeypatch):
     fake = _Agent()
     monkeypatch.setattr(agent_v2, "_AGENT", fake)

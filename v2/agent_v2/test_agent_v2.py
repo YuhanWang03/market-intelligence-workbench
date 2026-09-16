@@ -3447,6 +3447,39 @@ def test_cancellation_stops_the_engine_the_loops_and_marks_the_run(monkeypatch):
     result = AgentV2(catalog=default_catalog(), registry=registry).run("我的持仓里哪只风险最高？", cancel_event=cancel)  # the fan-out wave after the card is skipped
     assert result.status == RunStatus.CANCELLED and result.stop_reason == "cancelled"
 
+    # Two runs in flight on one agent: each execution context carries its own
+    # cancel event. Run A is held in planning while run B starts and finishes
+    # with a different event; A's tools must still see A's event.
+    seen = {}
+    gate = threading.Event()
+    hold = threading.Event()
+    registry = CapabilityRegistry(default_catalog())
+    def observe(arguments, context):
+        seen[context.run_id] = context.cancel_event  # handlers run on the engine's pool threads
+        return ToolEnvelope("research.stock", ResultStatus.COMPLETED, subject="x")
+    registry.register("research.stock", observe)
+    agent = AgentV2(catalog=default_catalog(), registry=registry)
+    planner = agent.planner
+    class Holding:
+        def plan(self, request, decision):
+            if threading.current_thread().name == "run-a":
+                gate.set()
+                hold.wait(5)
+            return planner.plan(request, decision)
+    agent.planner = Holding()
+    event_a, event_b = threading.Event(), threading.Event()
+    finished = {}
+    thread_a = threading.Thread(target=lambda: finished.__setitem__("a", agent.run("分析一下NVDA", cancel_event=event_a)), name="run-a")
+    thread_a.start()
+    assert gate.wait(5)
+    thread_b = threading.Thread(target=lambda: finished.__setitem__("b", agent.run("分析一下AMD", cancel_event=event_b)), name="run-b")
+    thread_b.start()
+    thread_b.join(10)
+    hold.set()
+    thread_a.join(10)
+    assert seen[finished["a"].run_id] is event_a and seen[finished["b"].run_id] is event_b
+    assert not hasattr(agent, "_cancel_event")
+
     # Telegram: the cancel word, the active-run registry and the header line.
     from v2.agent_v2.interfaces import telegram_format
     from v2.bot import agent_v2_bridge as bridge

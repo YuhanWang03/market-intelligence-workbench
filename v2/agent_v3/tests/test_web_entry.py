@@ -12,6 +12,24 @@ from app.auth import require_owner
 from v2.agent_v3.demo import build_demo_agent
 
 
+def test_v3_callers_without_a_session_id_do_not_share_one(monkeypatch,tmp_path):
+    monkeypatch.setenv("AGENT_V3_DATA_DIR",str(tmp_path))
+    seen=[]
+    class Recorder:
+        def run(self,text,**kwargs):
+            seen.append(kwargs["session_id"])
+            return build_demo_agent().run(text,session_id=kwargs["session_id"])
+    monkeypatch.setattr(agent_v3,"_get_agent",lambda:Recorder())
+    app=FastAPI()
+    app.include_router(agent_v3.router)
+    app.dependency_overrides[require_owner]=lambda:None
+    with TestClient(app) as client:
+        for _ in range(2):
+            client.post("/api/agent-v3/ask",json={"text":"fixture","background":False},cookies={"workbench_session":"cookie-a"})
+        client.post("/api/agent-v3/ask",json={"text":"fixture","background":False})
+    assert seen[0]==seen[1] and seen[0].startswith("web:") and seen[2] not in {seen[0],"web"}
+
+
 def test_v3_web_job_runs_graph_and_returns_compatible_evidence(monkeypatch,tmp_path):
     monkeypatch.setenv("AGENT_V3_DATA_DIR",str(tmp_path))
     agent=build_demo_agent()
