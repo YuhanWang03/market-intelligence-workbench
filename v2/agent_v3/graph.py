@@ -21,7 +21,7 @@ from v2.agent_v2.models import (
 )
 from v2.agent_v2.routing import route
 from v2.agent_v2.verification import complete_citations, verify_answer
-from v2.agent_v3.context import RunContext, RunStopped
+from v2.agent_v3.context import RunContext, RunStopped, model_identity
 from v2.agent_v3.contracts import GraphState, SemanticIntent, envelope_from, plain, plan_from
 from v2.agent_v3.execution import build_executor, validate_plan
 from v2.agent_v3.persistence import SessionStore
@@ -507,10 +507,16 @@ class AgentV3:
             return self._invoke(Command(resume={"approve": approve, "run_id": run_id}), run_id, session_id, on_progress, cancel_event)
 
     def _invoke(self, input_value, run_id, session_id, progress, cancellation):
+        from v2.usage_context import usage_run
+
         started = time.monotonic()
-        run = RunContext(run_id, started + self.config.max_seconds, cancellation, progress)
+        provider, model_name = model_identity(getattr(self.brain, "model", None))
+        run = RunContext(run_id, started + self.config.max_seconds, cancellation, progress, provider=provider, model=model_name)
         config = {"configurable": {"thread_id": run_id}, "max_concurrency": self.config.max_parallel, "recursion_limit": 80}
-        output = self.graph.invoke(input_value, config=config, context=run)
+        # Every provider call made for this question carries the run id in the
+        # usage ledger, the same attribution V2 gives its runs.
+        with usage_run(run_id):
+            output = self.graph.invoke(input_value, config=config, context=run)
         if output.get("__interrupt__"):
             output = dict(self.graph.get_state(config).values)
             output["status"] = "waiting_confirmation"
