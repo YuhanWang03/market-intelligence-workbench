@@ -522,6 +522,8 @@ npm run build
 
 GitHub Actions 会分别运行 Agent V2 和 Agent V3 的质量门。新增能力时应同时补充契约测试、数据源失败测试和不完整证据测试。
 
+统一的 V2 / V3 评测题集与运行器在 [`v2/agent_bench/`](v2/agent_bench/README.md)：约 90 道开发题加 20 道 holdout 题，每题带评分细则，可录制并回放冻结的工具数据，由同一裁判打分并做成对盲评。它产出的是待人工复核的运行记录，不是已发布的测评结论。
+
 ## 生产部署
 
 仓库中的 `web/deploy/` 包含 Nginx、systemd 和重新部署所需的配置与脚本。推荐拓扑：
