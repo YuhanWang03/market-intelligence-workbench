@@ -154,6 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--questions", nargs="*", help="override the default question list")
     parser.add_argument("--deepseek-defaults", action="store_true", help="derive AGENT_V3_* from DEEPSEEK_API_KEY when unset")
     parser.add_argument("--demo", action="store_true", help="offline plumbing check with the fixture agent (debate cannot run)")
+    parser.add_argument("--no-warm", action="store_true", help="skip the unrecorded warm-up pass that fills the research-engine cache")
     args = parser.parse_args(argv)
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # cmd.exe code pages
@@ -197,6 +198,19 @@ def main(argv: list[str] | None = None) -> int:
     }
     rows: list[dict] = []
     try:
+        if not args.demo and not args.no_warm:
+            # Provider fetches for an uncached ticker can run past the 180 s
+            # budget on a slow day, which skips the compare tool and then the
+            # review itself. Fill the research-engine cache first (results
+            # discarded) so both measured passes see the same evidence.
+            warm = agents.get("off") or next(iter(agents.values()))
+            for index, question in enumerate(questions, start=1):
+                print(f"WARM  case={index} q={question}", flush=True)
+                try:
+                    warm.run(question, session_id=f"debate-trial-warm-{index}", allow_web=web)
+                except Exception as exc:  # noqa: BLE001 — warm-up failures are not results
+                    print(f"WARM  case={index} failed: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
+            report["conditions"] += " Unrecorded warm-up pass ran first."
         for index, question in enumerate(questions, start=1):
             for mode in modes:
                 print(f"START case={index} mode={mode} q={question}", flush=True)

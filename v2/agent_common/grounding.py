@@ -51,7 +51,11 @@ _IDENTIFIER_CONTEXT = re.compile(
 _L = r"(?<![A-Za-z0-9])"
 _R = r"(?![A-Za-z0-9])"
 NON_QUANTITY = re.compile(
-    _L + r"\d{4}-\d{1,2}-\d{1,2}" + _R          # 2026-11-17
+    # Range shorthand first, so the trailing day is consumed with the date:
+    # 「截至2026-09-15/16」 left a bare 16 behind and failed three repairs.
+    _L + r"\d{4}-\d{1,2}-\d{1,2}/\d{1,2}" + _R    # 2026-09-15/16
+    + "|" + _L + r"\d{1,2}-\d{1,2}/\d{1,2}" + _R    # 09-15/16
+    + "|" + _L + r"\d{4}-\d{1,2}-\d{1,2}" + _R    # 2026-11-17
     + "|" + _L + r"\d{1,2}-\d{1,2}" + _R          # 10-21, 09-30
     + "|" + _L + r"\d{1,2}/\d{1,2}" + _R          # 9/30
     + "|" + _L + r"\d{1,4}\s?(?:ms|s|秒|分钟|小时)" + _R   # 30s 超时
