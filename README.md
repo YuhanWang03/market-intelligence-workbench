@@ -540,6 +540,8 @@ GitHub Actions 会分别运行 Agent V2 和 Agent V3 的质量门。新增能力
 4. 主后端和 Agent V3 分别安装依赖。
 5. 运行测试和健康检查后再重启服务。
 6. 保留数据库备份和上一版本回滚目录。
+7. 日常更新使用 `bash web/deploy/redeploy.sh`；它会重启主后端，并在 Agent V3 依赖的代码变更时同步其虚拟环境并重启 V3 服务。
+8. Nginx 配置不要直接用仓库文件覆盖线上文件：线上文件带有 Certbot 写入的 443 监听和证书路径，应先 `diff` 再手工移植变更行，或覆盖后重新执行 `certbot install --nginx`。
 
 ## 数据语义与可靠性原则
 

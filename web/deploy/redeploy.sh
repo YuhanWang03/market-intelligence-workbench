@@ -12,6 +12,7 @@
 # code it imports changed (or --agent-v3). Exits on the first error.
 set -euo pipefail
 
+main() {
 REPO=/root/market-intelligence-workbench
 REF=origin/main
 FORCE_FRONTEND=0
@@ -36,14 +37,35 @@ wait_http() {  # url, seconds
   return 1
 }
 
-echo "== git: fetch + fast-forward to $REF"
-git fetch origin --prune
-BEFORE=$(git rev-parse HEAD)
-git merge --ff-only "$REF"
-AFTER=$(git rev-parse HEAD)
-echo "   $BEFORE -> $AFTER"
-if [ "$BEFORE" = "$AFTER" ]; then echo "   nothing new"; fi
+if [ -n "${REDEPLOY_SINCE:-}" ]; then
+  # Second pass after the script updated itself: the tree is already at $REF.
+  BEFORE=$REDEPLOY_SINCE
+  AFTER=$(git rev-parse HEAD)
+  echo "== git: already at $AFTER (re-run of the updated script)"
+else
+  echo "== git: fetch + fast-forward to $REF"
+  git fetch origin --prune
+  BEFORE=$(git rev-parse HEAD)
+  git merge --ff-only "$REF"
+  AFTER=$(git rev-parse HEAD)
+  echo "   $BEFORE -> $AFTER"
+  if [ "$BEFORE" = "$AFTER" ]; then echo "   nothing new"; fi
+fi
 CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
+
+# When the update touched this script, finish the deploy with the new logic
+# rather than the copy that was loaded at start (the first run after adding
+# the Agent V3 section never executed it for exactly this reason).
+if [ -z "${REDEPLOY_SINCE:-}" ] && echo "$CHANGED" | grep -q '^web/deploy/redeploy.sh$'; then
+  echo "== redeploy.sh changed in this update; re-running the new script"
+  REDEPLOY_SINCE=$BEFORE exec bash "$REPO/web/deploy/redeploy.sh" "$@"
+fi
+
+if echo "$CHANGED" | grep -q '^web/deploy/nginx-web.conf$'; then
+  echo "== nginx: web/deploy/nginx-web.conf changed. NOT installed automatically —"
+  echo "   diff it against /etc/nginx/sites-available/hedge-fund-web.conf and port the"
+  echo "   changed lines by hand (the live file carries the Certbot TLS block)."
+fi
 
 echo "== backend: restart hedge-fund-web"
 sudo systemctl restart hedge-fund-web
@@ -100,3 +122,8 @@ fi
 
 echo "== done. services:"
 systemctl --no-pager --plain list-units 'hedge-fund-*' | sed -n '1,8p'
+}
+
+# Everything is parsed before the first command runs, so a `git merge` that
+# rewrites this file mid-deploy cannot alter the run in progress.
+main "$@"
