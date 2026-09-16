@@ -5,6 +5,7 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
+	resolve_context(resolve_context)
 	classify(classify)
 	plan(plan)
 	execute(execute)
@@ -17,7 +18,7 @@ graph TD;
 	finish(finish)
 	confirmation(confirmation)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> classify;
+	__start__ --> resolve_context;
 	classify -.-> finish;
 	classify -.-> plan;
 	classify -.-> synthesize;
@@ -31,6 +32,8 @@ graph TD;
 	plan -.-> execute;
 	plan -.-> finish;
 	repair --> verify;
+	resolve_context -.-> classify;
+	resolve_context -.-> finish;
 	synthesize -.-> fallback;
 	synthesize -.-> verify;
 	verify -.-> debate;
@@ -42,3 +45,4 @@ graph TD;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
+

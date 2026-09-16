@@ -238,7 +238,7 @@ flowchart TD
     I --> J{验证结果}
     J -- 可修复 --> K[repair]
     K --> I
-    J -- 证据不足 --> L[deterministic_fallback]
+    J -- 证据不足 --> L[fallback]
     J -- 需要对抗审阅 --> M[debate]
     J -- 通过 --> N[finish]
     L --> N
@@ -341,7 +341,7 @@ market-intelligence-workbench/
 
 ### 前置条件
 
-- Python 3.11+
+- Python 3.11+（Agent V3 的固定版本锁文件需要 3.12，3.11 下的安装方式见下文）
 - Poetry 2.x
 - Node.js 22.13+
 - npm
@@ -456,15 +456,16 @@ poetry run python -m v2.agent_v2.run_demo
 
 ### Agent V3 演示与独立服务
 
-为保持依赖隔离，建议创建单独环境：
+为保持依赖隔离，建议创建单独环境。`v2/agent_v3/requirements-business.lock` 是在 Python 3.12 上生成的固定版本文件（`scipy==1.18.1` 不支持 3.11）；本地使用 Python 3.11 时请改装 `requirements-business.in`，由 pip 按版本区间解析。只装 `requirements.lock` 不足以运行完整测试。
 
 ```bash
 python -m venv .venv-agent-v3
-.venv-agent-v3/bin/pip install -r v2/agent_v3/requirements.lock
+.venv-agent-v3/bin/pip install -r v2/agent_v3/requirements-business.lock   # Python 3.12
+# .venv-agent-v3/bin/pip install -r v2/agent_v3/requirements-business.in   # Python 3.11
 .venv-agent-v3/bin/python -m v2.agent_v3 --demo
 ```
 
-Windows 请将 `.venv-agent-v3/bin/python` 和 `pip` 替换为 `.venv-agent-v3\Scripts\python.exe` 和 `.venv-agent-v3\Scripts\pip.exe`。
+Windows 请将 `.venv-agent-v3/bin/python` 和 `pip` 替换为 `.venv-agent-v3\Scripts\python.exe` 和 `.venv-agent-v3\Scripts\pip.exe`，路径分隔符使用反斜杠。
 
 独立 API 服务：
 

@@ -30,7 +30,7 @@ flowchart TD
     I --> J{验证结果}
     J -- 可修复 --> K[repair]
     K --> I
-    J -- 证据不足 --> L[deterministic_fallback]
+    J -- 证据不足 --> L[fallback]
     J -- 需要对抗审阅 --> M[debate]
     J -- 通过 --> N[finish]
     L --> N
@@ -59,18 +59,27 @@ flowchart TD
 
 ## 环境与运行
 
-Agent V3 建议使用独立虚拟环境，以免 LangGraph 依赖影响主后端：
+Agent V3 建议使用独立虚拟环境，以免 LangGraph 依赖影响主后端。依赖分两层：`requirements.lock` 只含图运行时与测试框架；`requirements-business.lock` 在其基础上固定了 yfinance、edgartools、pandas 等数据源版本，并且是在 **Python 3.12** 上生成的（其中 `scipy==1.18.1` 不支持 3.11）。只装 `requirements.lock` 无法运行完整测试，`tests/` 中有用例导入 pandas 与 beautifulsoup4。
+
+Python 3.12，安装固定版本：
 
 ```bash
 python -m venv .venv-agent-v3
-.venv-agent-v3/bin/pip install -r v2/agent_v3/requirements.lock
+.venv-agent-v3/bin/pip install -r v2/agent_v3/requirements-business.lock
 ```
 
-Windows 使用：
+Python 3.11 本地开发，改用版本区间文件，由 pip 解析可用版本：
+
+```bash
+python -m venv .venv-agent-v3
+.venv-agent-v3/bin/pip install -r v2/agent_v3/requirements-business.in
+```
+
+Windows（cmd 或 PowerShell）使用：
 
 ```powershell
 python -m venv .venv-agent-v3
-.venv-agent-v3\Scripts\pip.exe install -r v2\agent_v3\requirements.lock
+.venv-agent-v3\Scripts\pip.exe install -r v2\agent_v3\requirements-business.in
 ```
 
 不使用 API Key 的离线演示：
