@@ -149,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", help="extra .env to load (repo .env is loaded first)")
     parser.add_argument("--output-dir", default="data/agent_v3/debate_trial")
     parser.add_argument("--max-seconds", type=float, default=180)
-    parser.add_argument("--modes", default="on,off", help="comma list of on/off (default both)")
+    parser.add_argument("--modes", default="off,on", help="comma list of on/off; off runs first so the research-engine cache warms on the cheaper run (default both)")
     parser.add_argument("--no-web", action="store_true", help="run without the web search allowance")
     parser.add_argument("--questions", nargs="*", help="override the default question list")
     parser.add_argument("--deepseek-defaults", action="store_true", help="derive AGENT_V3_* from DEEPSEEK_API_KEY when unset")

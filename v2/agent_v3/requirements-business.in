@@ -5,6 +5,8 @@ alpaca-py>=0.43,<1
 edgartools>=5.31,<6
 tavily-python>=0.5,<1
 fredapi>=0.5,<1
+# Research engine's lateral (supply-chain) discovery step calls DeepSeek through this client.
+langchain-deepseek>=1,<2
 numpy>=1.24,<3
 pandas>=2.1,<3
 scipy>=1.11,<2
