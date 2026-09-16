@@ -425,7 +425,7 @@ npm run dev
 | Web 登录 | `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH`, `WEB_SESSION_SECRET` | 所有者账号、密码摘要和签名会话密钥 |
 | Web 兼容鉴权 | `WEB_OWNER_TOKEN` | 内部进程调用令牌；未设置密码摘要时兼作初始登录密码 |
 | 访客快照 | `WEB_GUEST_ENABLED`, `WEB_PUBLIC_SNAPSHOT_DB` | 启用只读访客入口并设置独立快照库路径 |
-| 功能开关 | `AGENT_V2_WEB_ENABLED`, `AGENT_V3_WEB_ENABLED` | 是否允许智能体使用 Web 兜底 |
+| 功能开关 | `AGENT_V2_WEB_ENABLED`, `AGENT_V3_WEB_ENABLED`, `AGENT_V3_MUTATIONS_ENABLED` | 是否允许智能体使用 Web 兜底；是否允许 V3 执行经网页确认的写操作 |
 | 状态路径 | `WEB_ARCHIVE_DB`, `WEB_LAB_DB`, `WEB_PERSONAS_DB`, `AGENT_V2_SESSION_DB`, `AGENT_V3_DATA_DIR`, `AGENT_V3_ARCHIVE_DB` | 自定义持久化位置 |
 | 记录与账本 | `AGENT_V2_INTENT_LEDGER`, `AGENT_V2_CAPABILITY_LEDGER`, `AGENT_V2_SUBAGENT_LEDGER`, `AGENT_V2_QUALITY_LEDGER`, `AGENT_V2_USER_MEMORY`, `USAGE_CHANNEL` | 意图、能力、子智能体与质量记录文件，用户偏好记忆，以及后台进程的计费渠道标签 |
 

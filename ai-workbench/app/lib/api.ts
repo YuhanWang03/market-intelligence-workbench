@@ -140,9 +140,12 @@ export type AgentV2Response = {
   elapsed_ms: number;
   error: string;
   synthesis?: { outcome: string; draft: string; attempts: { stage: string; ok: boolean; warnings: string[]; unknown_citations: string[]; ungrounded_numbers: string[] }[] };
+  pending_mutation?: AgentPendingMutation | null;
   interface: 'web';
-  policy: { web_requested: boolean; web_enabled: boolean; web_allowed: boolean };
+  policy: { web_requested: boolean; web_enabled: boolean; web_allowed: boolean; mutations_enabled?: boolean };
 };
+
+export type AgentPendingMutation = { operation: string; payload: Record<string, unknown>; description: string };
 
 export type AgentV2Job = {
   job_id: string;
@@ -166,6 +169,15 @@ export function askAgentV2(text: string, sessionId: string, allowWeb: boolean, s
   return apiJson<AgentV2Response | AgentV2Job>(`/api/agent-${version}/ask`, {
     method: 'POST',
     body: JSON.stringify({ text, session_id: sessionId, allow_web: allowWeb, ...(version === 'v3' && pageContext ? { page_context: pageContext } : {}) }),
+    signal,
+  });
+}
+
+/** Approve or reject the write an Agent V3 run stopped on; the graph resumes from its checkpoint. */
+export function confirmAgentV3Run(runId: string, sessionId: string, approve: boolean, signal?: AbortSignal) {
+  return apiJson<AgentV2Response>(`/api/agent-v3/runs/${encodeURIComponent(runId)}/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, approve }),
     signal,
   });
 }

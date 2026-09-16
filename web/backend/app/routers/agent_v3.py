@@ -26,6 +26,7 @@ router = APIRouter(
 
 _AGENT = None
 _AGENT_WEB_ENABLED = None
+_AGENT_MUTATIONS_ENABLED = None
 _AGENT_LOCK = threading.Lock()
 _JOBS: dict[str, dict[str, Any]] = {}
 _JOBS_LOCK = threading.Lock()
@@ -45,16 +46,20 @@ def _enabled(name: str) -> bool:
 
 
 def _get_agent():
-    global _AGENT, _AGENT_WEB_ENABLED
+    global _AGENT, _AGENT_WEB_ENABLED, _AGENT_MUTATIONS_ENABLED
     web_enabled = _enabled("AGENT_V3_WEB_ENABLED")
-    if _AGENT is None or _AGENT_WEB_ENABLED != web_enabled:
+    # Writes (watchlist, alerts) stay unregistered unless the server opts in;
+    # even then every write stops at the graph's confirmation node and only
+    # the confirm endpoint below can resume it.
+    mutations_enabled = _enabled("AGENT_V3_MUTATIONS_ENABLED")
+    if _AGENT is None or (_AGENT_WEB_ENABLED, _AGENT_MUTATIONS_ENABLED) != (web_enabled, mutations_enabled):
         with _AGENT_LOCK:
-            if _AGENT is None or _AGENT_WEB_ENABLED != web_enabled:
+            if _AGENT is None or (_AGENT_WEB_ENABLED, _AGENT_MUTATIONS_ENABLED) != (web_enabled, mutations_enabled):
                 _AGENT = build_workspace_agent(
                     config=AgentV3Config(enable_web=web_enabled),
-                    enable_mutations=False,
+                    enable_mutations=mutations_enabled,
                 )
-                _AGENT_WEB_ENABLED = web_enabled
+                _AGENT_WEB_ENABLED, _AGENT_MUTATIONS_ENABLED = web_enabled, mutations_enabled
     return _AGENT
 
 
@@ -80,7 +85,13 @@ def _policy(body: AgentV3Input) -> dict[str, bool]:
         "web_requested": body.allow_web,
         "web_enabled": server_web,
         "web_allowed": body.allow_web and server_web,
+        "mutations_enabled": _enabled("AGENT_V3_MUTATIONS_ENABLED"),
     }
+
+
+class AgentV3Confirmation(BaseModel):
+    session_id: str = Field(min_length=1, max_length=128)
+    approve: bool
 
 
 def _execute(body: AgentV3Input, on_progress=None, resume_run=None) -> dict[str, Any]:
@@ -189,6 +200,20 @@ async def get_agent_v3_job(job_id: str) -> dict[str, Any]:
     if not job:
         raise HTTPException(status_code=404, detail="Agent V3 job not found")
     return job
+
+
+@router.post("/runs/{run_id}/confirm")
+async def confirm_agent_v3_run(run_id: str, body: AgentV3Confirmation) -> dict[str, Any]:
+    """Approve or reject the write a run stopped on; resumes the graph from its checkpoint."""
+    def resume():
+        return _get_agent().resume(session_id=body.session_id, run_id=run_id, approve=body.approve).to_dict()
+    try:
+        payload = await run_in_threadpool(resume)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {**payload, "interface": "web", "policy": _policy(AgentV3Input(text="confirm", session_id=body.session_id))}
 
 
 @router.post("/jobs/{job_id}/retry")

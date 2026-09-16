@@ -4,7 +4,7 @@
 
 import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep } from './lib/api';
+import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep, confirmAgentV3Run, type AgentPendingMutation } from './lib/api';
 import { LabPage, labMenu, type LabTool } from './lab';
 import { RelationshipMap } from './relationship-map';
 import { MoneyflowPanel, type FlowAnalysis } from './moneyflow-panel';
@@ -15,7 +15,7 @@ type MainSection = 'core' | 'research' | 'lab' | 'cost';
 type ResearchTool = 'stock' | 'fundamentals' | 'valuation' | 'earnings' | 'expectations' | 'institutional' | 'moneyflow' | 'macro' | 'chain' | 'risk';
 type ChatMode = 'agent_v2' | 'agent_v3';
 const CHAT_LABELS: Record<ChatMode, string> = { agent_v2: 'Agent V2', agent_v3: 'Agent V3' };
-type AgentChatMeta = { status: string; route: string; answerMode: string; elapsedMs: number; verified: boolean; capabilities: string[]; webRequested: boolean; webEnabled: boolean; webAllowed: boolean; warnings: string[]; synthesis: string; synthesisFallback: boolean; rewritten: string; subAgents: AgentV2SubAgent[] };
+type AgentChatMeta = { status: string; route: string; answerMode: string; elapsedMs: number; verified: boolean; capabilities: string[]; webRequested: boolean; webEnabled: boolean; webAllowed: boolean; warnings: string[]; synthesis: string; synthesisFallback: boolean; rewritten: string; subAgents: AgentV2SubAgent[]; runId: string; sessionId: string; pendingMutation: AgentPendingMutation | null };
 const STOP_LABELS: Record<string, string> = { finished: '完成', rounds: '轮次用尽', time: '超时', no_model: '无模型', no_budget: '无预算' };
 const CALL_LABELS: Record<string, string> = { news: '新闻', filing_events: '读申报', memory: '记忆', search: '搜索', read: '读正文', filings: '申报', sections_read: '读节', events: '事件', objections: '反对' };
 function callSummary(calls: Record<string, number | null | undefined>): string { return Object.entries(calls).filter(([, value]) => value).map(([key, value]) => `${CALL_LABELS[key] || key} ${value}`).join('、'); }
@@ -501,6 +501,9 @@ export default function Home() {
         meta: `运行 ${response.run_id} · 上下文：${messageContext}${requestMode === 'agent_v3' ? '（已传递，事实由工具核验）' : ''}`,
         agent: {
           status: response.status,
+          runId: response.run_id,
+          sessionId: agentSessionId(version),
+          pendingMutation: response.pending_mutation || null,
           route: response.route.kind,
           answerMode: response.answer_mode,
           elapsedMs: response.elapsed_ms,
@@ -532,6 +535,27 @@ export default function Home() {
       setChatProgress('');
     }
   }, [allowAgentWeb, chatBusy, chatContext, chatMode, section, researchTool, labTool, researchTicker, researchResult, researchBusy, isDemo, dataError, pageSelection, isGuest]);
+
+  // A write the agent stopped on. V3 resumes its checkpoint through the confirm
+  // endpoint; V2 resolves the pending write with the next message in the session.
+  const resolveConfirmation = useCallback(async (message: ChatMessage, approve: boolean) => {
+    if (!message.agent || chatBusy || isGuest) return;
+    if (message.mode !== 'agent_v3') { await sendMessage(approve ? '确认' : '取消'); return; }
+    const { runId, sessionId } = message.agent;
+    setChatBusy(true);
+    setChatProgress(approve ? 'Agent V3 正在执行已确认的修改…' : 'Agent V3 正在取消…');
+    try {
+      const response = await confirmAgentV3Run(runId, sessionId, approve);
+      const confirmed: ChatMessage = { ...message, id: Date.now(), text: response.answer || response.error || '没有返回结果。', meta: `运行 ${response.run_id} · ${approve ? '已确认执行' : '已取消'}`, agent: { ...message.agent, status: response.status, pendingMutation: null, verified: response.status !== 'failed' && response.verification.ok, warnings: [...response.verification.warnings], capabilities: response.plan.tasks.map(task => task.capability), elapsedMs: response.elapsed_ms }, evidence: uniqueEvidence(response.evidence || []) };
+      setMessages(items => [...items.map(item => item.id === message.id && item.agent ? { ...item, agent: { ...item.agent, pendingMutation: null }, meta: `${item.meta || ''} · ${approve ? '已确认' : '已取消'}` } : item), confirmed]);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'unknown';
+      setMessages(items => [...items, { id: Date.now(), role: 'assistant', text: `确认失败：${detail}。待确认的操作可能已过期，请重新提问。`, mode: 'agent_v3', meta: '连接错误' }]);
+    } finally {
+      setChatBusy(false);
+      setChatProgress('');
+    }
+  }, [chatBusy, isGuest, sendMessage]);
   const runResearch: ResearchRun = async (tool, ticker, retry) => {
     if (isGuest) return;
     const resultTicker = ticker.trim().toUpperCase();
@@ -604,6 +628,7 @@ export default function Home() {
             {message.agent && <div className="agent-badges"><span>{message.agent.status}</span>{message.agent.status === 'partial' && <span className="warning">数据或结论仍有缺口</span>}<span>{message.agent.route}</span><span>{message.agent.answerMode}</span>{Boolean(message.evidence?.length) && <span title="仅表示引用和数字可追溯，不代表数据口径一致或原因已确认" className={message.agent.verified ? 'verified' : 'warning'}>{message.agent.verified ? '引用与数字可追溯' : '引用或数字校验有警告'}</span>}{message.agent.synthesis && <span className={message.agent.synthesisFallback ? 'warning' : ''}>{message.agent.synthesis}</span>}{message.agent.rewritten && <span title={message.agent.rewritten}>接上文</span>}{message.agent.webAllowed && <span className="web">Web 已授权</span>}{message.agent.webRequested && !message.agent.webEnabled && <span className="warning">服务端未启用 Web</span>}<span>{(message.agent.elapsedMs / 1000).toFixed(1)}s</span></div>}
             <div className="message-body">{message.role === 'assistant' ? <AgentAnswer text={message.text} evidence={message.evidence} messageId={message.id}/> : message.text}</div>
             {message.image && <Image src={message.image} width={900} height={600} unoptimized alt="AI 查询生成的分析图表"/>}
+            {message.agent?.pendingMutation && message.agent.status === 'waiting_confirmation' && <div className="confirm-actions" role="group" aria-label="确认修改"><span>{message.agent.pendingMutation.operation} · {JSON.stringify(message.agent.pendingMutation.payload)}</span><button type="button" disabled={chatBusy || isGuest} onClick={() => void resolveConfirmation(message, true)}>确认执行</button><button type="button" className="secondary" disabled={chatBusy || isGuest} onClick={() => void resolveConfirmation(message, false)}>取消</button></div>}
             {message.agent && message.agent.capabilities.length > 0 && <details className="agent-detail"><summary>执行工具（{message.agent.capabilities.length}）{message.agent.subAgents.length > 0 && ` · 子智能体 ${message.agent.subAgents.length}`}</summary><div className="capability-list">{message.agent.capabilities.map((capability, index) => <code key={`${capability}-${index}`}>{capability}</code>)}</div>{message.agent.subAgents.map((agent, index) => <div key={`${agent.capability}-${index}`} className="sub-agent"><SubAgentTrace label={`${agent.label} ${agent.subject}`} rounds={agent.rounds} elapsedMs={agent.elapsed_ms} stop={agent.stop_reason} calls={agent.calls} trace={agent.trace} intraday={agent.intraday} notes={agent.notes}/>{agent.nested.map((nested, nestedIndex) => <div key={nestedIndex} className="sub-agent nested"><SubAgentTrace label={nested.label} rounds={nested.rounds} elapsedMs={nested.elapsed_ms} stop={nested.stop_reason} calls={nested.calls} trace={nested.trace}/></div>)}</div>)}</details>}
             {message.evidence && message.evidence.length > 0 && <details id={`agent-evidence-${message.id}`} className="agent-detail"><summary>证据（{message.evidence.length}）</summary><ol className="evidence-list">{message.evidence.map((item, index) => <li id={`agent-evidence-${message.id}-${index + 1}`} key={item.id}><div><code>{item.id}</code>{item.entity && <strong>{item.entity}</strong>}</div><p>{item.claim}</p>{item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">{item.source_title || item.source_id || '查看来源'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</a> : <small>{item.source_title || item.source_id || '内部计算结果'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</small>}</li>)}</ol></details>}
             {message.agent && message.agent.warnings.length > 0 && <details className="agent-detail warning-detail"><summary>校验警告（{message.agent.warnings.length}）</summary><ul>{message.agent.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></details>}

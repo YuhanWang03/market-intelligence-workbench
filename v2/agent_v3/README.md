@@ -109,7 +109,10 @@ python -m venv .venv-agent-v3
 POST /api/agent-v3/ask
 GET  /api/agent-v3/jobs/{job_id}
 POST /api/agent-v3/jobs/{job_id}/retry
+POST /api/agent-v3/runs/{run_id}/confirm   # {"session_id": ..., "approve": true|false}
 ```
+
+写操作（加入关注、价格提醒等）默认关闭。服务端设置 `AGENT_V3_MUTATIONS_ENABLED=1` 后，命令类请求会停在确认节点并返回 `status=waiting_confirmation` 与 `pending_mutation`；网页会显示"确认执行 / 取消"按钮，点击后调用上面的 confirm 接口恢复图执行。确认在 `confirmation_ttl`（默认 300 秒）内有效，只能由发起该请求的会话恢复一次；新的提问会使旧的待确认操作失效。
 
 模型配置通常使用 `AGENT_V3_MODEL`、`AGENT_V3_BASE_URL`、`AGENT_V3_API_KEY` 和 `AGENT_V3_THINKING`。Web 访问必须通过 `AGENT_V3_WEB_ENABLED` 和单次请求共同允许。不要提交真实密钥、checkpoint、会话或运行日志。
 

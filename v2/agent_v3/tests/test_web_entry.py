@@ -12,6 +12,48 @@ from app.auth import require_owner
 from v2.agent_v3.demo import build_demo_agent
 
 
+def test_v3_web_confirmation_round_trip(monkeypatch, tmp_path):
+    from v2.agent_v2.models import EvidenceItem, ResultStatus, ToolEnvelope
+    from v2.agent_v3.contracts import SemanticIntent
+    from v2.agent_v3.demo import DemoBrain
+    from v2.agent_v3.graph import AgentV3, AgentV3Config
+    from v2.agent_v3.tools import Registry
+    monkeypatch.setenv("AGENT_V3_DATA_DIR", str(tmp_path))
+    calls = []
+    registry = Registry()
+    def mutate(args, ctx):
+        calls.append(args)
+        return ToolEnvelope("state.mutate", ResultStatus.COMPLETED, evidence=[EvidenceItem("written", "NVDA", "已添加 NVDA 关注。", source_id="test_state")])
+    registry.register("state.mutate", mutate)
+    class Write(DemoBrain):
+        def classify(self, *args):
+            return SemanticIntent(kind="command", tickers=["NVDA"], command={"operation": "watchlist.add", "ticker": "NVDA"})
+    agent = AgentV3(registry=registry, brain=Write(), config=AgentV3Config(debate=False))
+    monkeypatch.setattr(agent_v3, "_get_agent", lambda: agent)
+    app = FastAPI()
+    app.include_router(agent_v3.router)
+    app.dependency_overrides[require_owner] = lambda: None
+    try:
+        with TestClient(app) as client:
+            pending = client.post("/api/agent-v3/ask", json={"text": "加入关注 NVDA", "session_id": "owner", "background": False}).json()
+            assert pending["status"] == "waiting_confirmation"
+            assert pending["pending_mutation"] == {"operation": "watchlist.add", "payload": {"ticker": "NVDA"}, "description": pending["pending_mutation"]["description"]}
+            assert calls == []
+            wrong = client.post(f"/api/agent-v3/runs/{pending['run_id']}/confirm", json={"session_id": "someone-else", "approve": True})
+            assert wrong.status_code == 409 and calls == []
+            done = client.post(f"/api/agent-v3/runs/{pending['run_id']}/confirm", json={"session_id": "owner", "approve": True})
+            assert done.status_code == 200 and done.json()["status"] == "completed" and "已添加" in done.json()["answer"]
+            assert calls == [{"operation": "watchlist.add", "payload": {"ticker": "NVDA"}}]
+            again = client.post(f"/api/agent-v3/runs/{pending['run_id']}/confirm", json={"session_id": "owner", "approve": True})
+            assert again.status_code == 409 and len(calls) == 1
+            rejected = client.post("/api/agent-v3/ask", json={"text": "加入关注 NVDA", "session_id": "owner", "background": False}).json()
+            cancelled = client.post(f"/api/agent-v3/runs/{rejected['run_id']}/confirm", json={"session_id": "owner", "approve": False}).json()
+            assert cancelled["status"] == "cancelled" and len(calls) == 1
+            assert client.post("/api/agent-v3/runs/nope/confirm", json={"session_id": "owner"}).status_code == 422
+    finally:
+        agent.store.close()
+
+
 def test_v3_callers_without_a_session_id_do_not_share_one(monkeypatch,tmp_path):
     monkeypatch.setenv("AGENT_V3_DATA_DIR",str(tmp_path))
     seen=[]
