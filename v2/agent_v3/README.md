@@ -55,6 +55,7 @@ flowchart TD
 | `portfolio_*.py` | 组合概览、风险分析和验收支持 |
 | `institutional.py` | 基金经理 13F 持仓：别名解析、字段级证据、季度增减仓 |
 | `ark.py` | ARK 基金每日持仓：快照摘要、前列持仓、相对上一份快照的变动 |
+| `earnings.py` | 持仓与关注列表的财报日历：窗口内每个发布日期一条证据 |
 | `news_research.py` / `specialists.py` | 新闻检索及受 schema 约束的专家流程 |
 | `tests/` | 单元、契约、边界和回归测试 |
 | `*_acceptance.py` / `*_eval.py` / `live_smoke.py` | 开发期验收和评测脚手架；不是正式测评报告 |

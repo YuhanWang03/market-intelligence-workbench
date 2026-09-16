@@ -55,6 +55,8 @@ def build_workspace_agent(*, model=None, config=None, data_dir=None, enable_muta
     register_institutional(registry)
     from v2.agent_v3.ark import register_ark
     register_ark(registry)
+    from v2.agent_v3.earnings import register_earnings
+    register_earnings(registry)
     primary_search = None
     if config.enable_web and search is None:
         key = os.environ.get("TAVILY_API_KEY")
