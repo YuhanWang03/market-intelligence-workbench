@@ -249,19 +249,64 @@ def test_required_dependency_failure_skips_consumer():
     assert called == []
 
 
-def test_failed_debate_does_not_replace_verified_answer():
-    agent=build_demo_agent()
+def _research_agent(reviewer, revised_text):
+    """Demo agent routed to research, with a scripted reviewer and a scripted revision."""
+    agent = build_demo_agent()
     class Research(DemoBrain):
-        def classify(self,*args):
-            return SemanticIntent(kind="research",wants=["performance"],tickers=["NVDA"])
-    agent.brain=Research()
-    agent.config=replace(agent.config,debate=True)
+        def classify(self, *args):
+            return SemanticIntent(kind="research", wants=["performance"], tickers=["NVDA"])
+        def draft(self, state, registry, run, **kwargs):
+            return revised_text if kwargs.get("objections") else super().draft(state, registry, run)
+    agent.brain = Research()
+    agent.config = replace(agent.config, debate=True)
+    agent.reviewer = reviewer
+    return agent
+
+
+OBJECTION = {"objection": "答案未说明价格口径", "evidence_id": "demo-price"}
+
+
+def test_failed_debate_does_not_replace_verified_answer():
     def broken(*args):
         raise RuntimeError("review provider down")
-    agent.reviewer=broken
-    result=agent.run(DEMO_QUESTION)
+    agent = _research_agent(broken, "unused")
+    result = agent.run(DEMO_QUESTION)
     assert result.status == RunStatus.COMPLETED
     assert result.verification.ok
+    assert result.synthesis["debate"]["ran"] is True
+    assert result.synthesis["debate"]["error"].startswith("RuntimeError")
+
+
+def test_debate_revision_that_verifies_replaces_the_answer_and_is_recorded():
+    agent = _research_agent(lambda state, run: [OBJECTION], "离线演示：NVDA 收盘价为 120 美元（收盘口径）。[demo-price]")
+    result = agent.run(DEMO_QUESTION)
+    assert result.status == RunStatus.COMPLETED
+    assert "收盘口径" in result.answer
+    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": True}
+    assert result.synthesis["objections"] == [OBJECTION]
+    assert len(result.synthesis["attempts"]) == 2 and result.synthesis["attempts"][-1]["ok"]
+    assert not result.verification.warnings
+
+
+def test_debate_revision_that_fails_keeps_the_answer_and_surfaces_objections():
+    agent = _research_agent(lambda state, run: [OBJECTION], "NVDA 收盘价为 999 美元。[fake-id]")
+    result = agent.run(DEMO_QUESTION)
+    assert result.status == RunStatus.COMPLETED
+    assert "999" not in result.answer and "demo-price" in result.answer
+    assert result.verification.ok
+    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": False}
+    assert any("审阅异议" in note and "demo-price" in note for note in result.verification.warnings)
+    assert result.synthesis["attempts"][-1]["rejected_draft"].startswith("NVDA 收盘价为 999")
+
+
+def test_skipped_debate_records_why():
+    agent = build_demo_agent()  # debate=False in the demo config
+    result = agent.run(DEMO_QUESTION)
+    assert result.synthesis["debate"] == {"ran": False, "skipped": "disabled"}
+    agent.config = replace(agent.config, debate=True)
+    agent.reviewer = lambda state, run: []
+    result = agent.run(DEMO_QUESTION)
+    assert result.synthesis["debate"] == {"ran": False, "skipped": "route=fast_lookup"}
 
 
 def test_new_question_invalidates_pending_confirmation():

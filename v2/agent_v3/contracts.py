@@ -175,6 +175,9 @@ class GraphState(TypedDict, total=False):
     approved: bool
     confirmation_expires: float
     objections: list[dict]
+    #: Adversarial review record: ran, skipped (reason), objections, revised,
+    #: revised_verified, error.  Present on every finished run.
+    debate: dict
     trace: list[str]
     usage: list[dict]
 

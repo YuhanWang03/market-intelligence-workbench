@@ -343,13 +343,25 @@ class AgentV3:
         attempt = report if report.get("ok") else {**report, "rejected_draft": answer[:12000]}
         return {"answer": answer, "report": report, "attempts": [*state.get("attempts", []), attempt]}
 
+    def _debate_gate(self, state):
+        """Why a verified answer does not go to adversarial review; empty when it does."""
+        if not self.config.debate:
+            return "disabled"
+        if not self.reviewer:
+            return "no_reviewer"
+        if state.get("follow_up"):
+            return "follow_up"
+        if state.get("route") != "research":
+            return f"route={state.get('route') or '?'}"
+        if any(row.get("metadata", {}).get("review_stage") == "source_cross_review" for row in state.get("results", [])):
+            return "source_cross_review"
+        return ""
+
     def _after_verify(self, state):
         if state.get("fallback") or state.get("status") == "cancelled":
             return "finish"
         if state.get("report", {}).get("ok") and not state.get("error"):
-            if any(row.get("metadata",{}).get("review_stage")=="source_cross_review" for row in state.get("results",[])):
-                return "finish"
-            return "debate" if self.config.debate and self.reviewer and not state.get("follow_up") and state.get("route") == "research" else "finish"
+            return "finish" if self._debate_gate(state) else "debate"
         if state.get("error") or state.get("repairs", 0) >= self.config.max_repairs:
             return "fallback"
         return "repair"
@@ -385,18 +397,34 @@ class AgentV3:
         return {"answer": answer, "fallback": True, "report": {"ok": False, "warnings": ["Deterministic evidence summary; model answer unavailable or rejected"]}}
 
     def _debate(self, state, run):
+        """Adversarial review of an already verified answer.
+
+        The record in ``state["debate"]`` says what happened, whichever way it
+        went: the reviewer's objections, whether a revision was drafted and
+        whether it passed verification.  A revision that fails verification
+        keeps the original answer, and the objections are attached to its
+        report as warnings so the reader still sees the review.
+        """
         if run.remaining() <= self.config.answer_reserve_seconds:
-            return {}
+            return {"debate": {"ran": False, "skipped": "time_budget"}}
+        record = {"ran": True, "objections": [], "revised": False, "revised_verified": False}
         try:
-            objections = self.reviewer(state, run)
+            objections = list(self.reviewer(state, run) or [])
+            record["objections"] = objections
             if not objections:
-                return {"objections": []}
+                return {"objections": [], "debate": record}
             revised = self.brain.draft(state, self.registry, run, objections=objections)
+            record["revised"] = True
             answer, report = self._report(revised, state, run)
-            return {"objections": objections, **({"answer": answer, "report": report} if report["ok"] else {})}
-        except Exception:
-            # Optional review must never discard the already verified answer.
-            return {}
+            record["revised_verified"] = bool(report.get("ok"))
+            if report.get("ok"):
+                return {"objections": objections, "debate": record, "answer": answer, "report": report, "attempts": [*state.get("attempts", []), report]}
+            kept = dict(state.get("report", {}))
+            kept["warnings"] = [*kept.get("warnings", []), *(f"审阅异议（修订稿未通过校验，保留原答案）：{row.get('objection', row)} [{row.get('evidence_id', '?')}]" if isinstance(row, dict) else f"审阅异议：{row}" for row in objections)]
+            return {"objections": objections, "debate": record, "report": kept, "attempts": [*state.get("attempts", []), {**report, "rejected_draft": answer[:12000]}]}
+        except Exception as exc:  # noqa: BLE001 — optional review must never discard the verified answer
+            record["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+            return {"debate": record}
 
     def _finish(self, state, run):
         status = state.get("status", "")
@@ -410,7 +438,11 @@ class AgentV3:
             answer = "已取消本次任务。" if not answer else answer
         elif not answer:
             answer = "本次任务未完成，请补充信息或稍后重试。"
-        return {"status": status, "answer": answer, "usage": list(run.usage)}
+        update = {"status": status, "answer": answer, "usage": list(run.usage)}
+        if "debate" not in state:
+            skipped = "fallback" if state.get("fallback") else ("verification_failed" if not state.get("report", {}).get("ok") else (self._debate_gate(state) or status))
+            update["debate"] = {"ran": False, "skipped": skipped}
+        return update
 
     @contextmanager
     def _session_lock(self, session_id):
@@ -503,4 +535,4 @@ class AgentV3:
         if state["status"] == "waiting_confirmation":
             task = plan.tasks[0]
             pending = PendingMutation(task.arguments["operation"], task.arguments["payload"], task.purpose or task.capability)
-        return AgentResult(run_id=state["run_id"], request=self._request(state), route=RouteDecision(plan.route, (), "LangGraph semantic routing"), plan=plan, status=RunStatus(state["status"]), answer=state["answer"], answer_mode=plan.answer_mode, results=[envelope_from(row) for row in state.get("results", [])], evidence=[EvidenceItem(**row) for row in state.get("evidence", [])], verification=VerificationReport(**state.get("report", {})), elapsed_ms=elapsed_ms, error=state.get("error", ""), stop_reason=state.get("stop_reason", ""), pending_mutation=pending, synthesis={"framework": "langgraph", "nodes": state.get("trace", []), "attempts": state.get("attempts", []), "outcome": "fallback" if state.get("fallback") else ("repaired" if state.get("repairs") else "model"), "usage": list(run.usage), "objections": state.get("objections", [])})
+        return AgentResult(run_id=state["run_id"], request=self._request(state), route=RouteDecision(plan.route, (), "LangGraph semantic routing"), plan=plan, status=RunStatus(state["status"]), answer=state["answer"], answer_mode=plan.answer_mode, results=[envelope_from(row) for row in state.get("results", [])], evidence=[EvidenceItem(**row) for row in state.get("evidence", [])], verification=VerificationReport(**state.get("report", {})), elapsed_ms=elapsed_ms, error=state.get("error", ""), stop_reason=state.get("stop_reason", ""), pending_mutation=pending, synthesis={"framework": "langgraph", "nodes": state.get("trace", []), "attempts": state.get("attempts", []), "outcome": "fallback" if state.get("fallback") else ("repaired" if state.get("repairs") else "model"), "usage": list(run.usage), "objections": state.get("objections", []), "debate": state.get("debate", {})})

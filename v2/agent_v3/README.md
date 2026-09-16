@@ -118,7 +118,7 @@ POST /api/agent-v3/jobs/{job_id}/retry
 .venv-agent-v3/bin/python -m pytest v2/agent_v3/tests v2/agent_common -q -p no:cacheprovider
 ```
 
-`quality_eval.py` 使用固定合成证据检查部分输出约束，`live_smoke.py` 检查真实运行链路是否可用，`acceptance.py` 和其他 acceptance 脚本检查特定业务路径。这些工具的存在不表示正式测评已经完成；部分脚本也在源码中明确声明其结果不是质量分数。
+`quality_eval.py` 使用固定合成证据检查部分输出约束，`live_smoke.py` 检查真实运行链路是否可用，`acceptance.py` 和其他 acceptance 脚本检查特定业务路径。`debate_trial.py` 对同一批研究题分别在开启与关闭对抗审阅时各跑一次，记录 debate 节点是否执行、跳过原因、异议内容与修订稿是否通过校验（结果中的 `synthesis.debate` 字段）；它需要真实模型，产出的是观察记录而不是分数。这些工具的存在不表示正式测评已经完成；部分脚本也在源码中明确声明其结果不是质量分数。
 
 正式评估 V3 时，应与 V2 使用完全相同的模型、问题集、数据快照、搜索权限、工具预算、超时设置和评分标准，并额外衡量 checkpoint 恢复、依赖失败传播、写操作确认和长任务取消。当前尚未发布这种受控对比报告。
 
