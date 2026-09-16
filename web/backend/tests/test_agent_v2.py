@@ -78,3 +78,41 @@ def test_agent_v2_job_poller_returns_404_for_unknown_job():
     with TestClient(app) as client:
         response = client.get("/api/agent-v2/jobs/missing")
     assert response.status_code == 404
+
+
+def _drain(client, started):
+    final = started
+    for _ in range(200):
+        final = client.get(f"/api/agent-v2/jobs/{started['job_id']}").json()
+        if final["status"] != "running":
+            break
+        time.sleep(0.01)
+    return final
+
+
+def test_research_requests_default_to_a_pollable_job(monkeypatch):
+    """A research run outlasts the reverse proxy's read timeout; the browser polls instead."""
+    fake = _Agent()
+    monkeypatch.setattr(agent_v2, "_AGENT", fake)
+    monkeypatch.setattr(agent_v2, "_AGENT_WEB_ENABLED", False)
+    monkeypatch.delenv("AGENT_V2_WEB_ENABLED", raising=False)
+    with agent_v2._JOBS_LOCK:
+        agent_v2._JOBS.clear()
+    with TestClient(app) as client:
+        started = client.post("/api/agent-v2/ask", json={"text": "分析一下NVDA", "session_id": "browser-2"}).json()
+        assert started["job_id"] and started["status"] in {"running", "completed"}
+        final = _drain(client, started)
+    assert final["status"] == "completed"
+    assert final["result"]["answer"] == "answer: 分析一下NVDA"
+    assert fake.calls[0][1]["session_id"] == "browser-2"
+
+
+def test_explicit_background_false_keeps_a_research_request_inline(monkeypatch):
+    fake = _Agent()
+    monkeypatch.setattr(agent_v2, "_AGENT", fake)
+    monkeypatch.setattr(agent_v2, "_AGENT_WEB_ENABLED", False)
+    monkeypatch.delenv("AGENT_V2_WEB_ENABLED", raising=False)
+    with TestClient(app) as client:
+        payload = client.post("/api/agent-v2/ask", json={"text": "分析一下NVDA", "background": False}).json()
+    assert "job_id" not in payload
+    assert payload["answer"] == "answer: 分析一下NVDA"

@@ -2,23 +2,26 @@
 # Redeploy the web backend + ai-workbench frontend (+ scheduler) on the VPS.
 #
 #   ssh root@<vps>
-#   cd /root/market-intelligence-workbench && bash web/deploy/redeploy.sh [git-ref] [--frontend] [--scheduler]
+#   cd /root/market-intelligence-workbench && bash web/deploy/redeploy.sh [git-ref] [--frontend] [--scheduler] [--agent-v3]
 #
 # git-ref defaults to origin/main. The script fast-forwards the checked-out
 # branch to it, restarts the FastAPI backend and waits (up to 60 s) for
 # /api/health, rebuilds the vinext workbench when ai-workbench/ changed (or
-# --frontend), and restarts the scheduler when v2/scheduler/ changed (or
-# --scheduler). Exits on the first error.
+# --frontend), restarts the scheduler when v2/scheduler/ changed (or
+# --scheduler), and syncs + restarts the isolated Agent V3 service when any
+# code it imports changed (or --agent-v3). Exits on the first error.
 set -euo pipefail
 
 REPO=/root/market-intelligence-workbench
 REF=origin/main
 FORCE_FRONTEND=0
 FORCE_SCHEDULER=0
+FORCE_AGENT_V3=0
 for arg in "$@"; do
   case "$arg" in
     --frontend) FORCE_FRONTEND=1 ;;
     --scheduler) FORCE_SCHEDULER=1 ;;
+    --agent-v3) FORCE_AGENT_V3=1 ;;
     *) REF="$arg" ;;
   esac
 done
@@ -68,6 +71,31 @@ if [ "$FORCE_SCHEDULER" = 1 ] || echo "$CHANGED" | grep -q '^v2/scheduler/'; the
   sudo systemctl restart hedge-fund-scheduler
 else
   echo "== scheduler: unchanged, not restarted (use --scheduler to force)"
+fi
+
+# Agent V3 is a separate process with its own venv: a backend restart does not
+# reach it. It imports v2/agent_v2 + v2/agent_common and the backend's auth,
+# so a change to any of those leaves it serving stale code (seen once as a
+# 401 after the owner-login change, then a missing tavily after the restart).
+V3_VENV=$REPO/.venv-agent-v3
+V3_LOCK=v2/agent_v3/requirements-business.lock
+V3_CODE='^v2/agent_v3/|^v2/agent_v2/|^v2/agent_common/|^web/backend/app/auth.py|^web/backend/app/config.py|^web/backend/app/routers/agent_v3.py|^web/deploy/agent-v3-server.py'
+if systemctl list-unit-files hedge-fund-agent-v3.service --no-legend 2>/dev/null | grep -q hedge-fund-agent-v3; then
+  if [ "$FORCE_AGENT_V3" = 1 ] || echo "$CHANGED" | grep -Eq "$V3_CODE"; then
+    if [ "$FORCE_AGENT_V3" = 1 ] || echo "$CHANGED" | grep -q "^$V3_LOCK$" || ! "$V3_VENV/bin/python" -c 'import langgraph, tavily, pandas, bs4' 2>/dev/null; then
+      echo "== agent-v3: sync $V3_VENV from $V3_LOCK"
+      "$V3_VENV/bin/pip" install --quiet -r "$V3_LOCK"
+    fi
+    echo "== agent-v3: restart hedge-fund-agent-v3"
+    sudo systemctl restart hedge-fund-agent-v3
+    if wait_http http://127.0.0.1:8104/health 60; then
+      echo "   /health ok"
+    else
+      echo "   agent-v3 not healthy after 60 s — journalctl -u hedge-fund-agent-v3 -n 30"; journalctl -u hedge-fund-agent-v3 -n 30 --no-pager; exit 1
+    fi
+  else
+    echo "== agent-v3: unchanged, not restarted (use --agent-v3 to force)"
+  fi
 fi
 
 echo "== done. services:"

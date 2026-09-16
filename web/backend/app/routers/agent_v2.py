@@ -15,6 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
 from v2.agent_v2.interfaces.web import WebFacade, WebRequest
+from v2.agent_v2.models import RouteKind
 from v2.agent_v2.orchestrator import AgentV2Config
 from v2.agent_v2.routing import normalize_request, route
 from v2.agent_v2.runtime import build_workspace_agent
@@ -150,11 +151,23 @@ def _start_job(body: AgentV2Input) -> dict[str, Any]:
     return _job_view(job_id)
 
 
+#: Route kinds whose runs (model planning, research engine, web search, synthesis,
+#: verification, debate) routinely outlast the reverse proxy's read timeout.  They
+#: return a job the browser polls; lookups, knowledge answers and confirmations
+#: still answer inline.
+_BACKGROUND_ROUTES = frozenset({RouteKind.RESEARCH, RouteKind.LAB, RouteKind.ASYNC})
+
+
+def _runs_in_background(body: AgentV2Input) -> bool:
+    if body.background is not None:
+        return body.background
+    decision = route(normalize_request(body.text))
+    return decision.asynchronous or decision.kind in _BACKGROUND_ROUTES
+
+
 @router.post("/ask")
 async def ask_agent_v2(body: AgentV2Input) -> dict[str, Any]:
-    decision = route(normalize_request(body.text))
-    background = body.background is True or (body.background is None and decision.asynchronous)
-    if background:
+    if _runs_in_background(body):
         return _start_job(body)
     return await run_in_threadpool(_execute, body)
 

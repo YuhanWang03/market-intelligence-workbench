@@ -122,8 +122,17 @@ class OpenAICompatLLM:
         temperature: float = 0.0,
         timeout: float = 90.0,
         max_retries: int = 3,
+        thinking: str | None = None,
     ) -> None:
         self.model = model or os.environ.get("AGENT_LLM_MODEL", "deepseek-v4-flash")
+        # DeepSeek turns thinking on by default for its current models; a
+        # thinking run is several times slower per call and rejects a named
+        # ``tool_choice``.  ``AGENT_LLM_THINKING=disabled`` mirrors V3's
+        # ``AGENT_V3_THINKING`` switch.  Unset: the provider's default.
+        thinking = (thinking or os.environ.get("AGENT_LLM_THINKING") or "").strip().lower() or None
+        if thinking not in {None, "enabled", "disabled"}:
+            raise ValueError("AGENT_LLM_THINKING must be enabled or disabled")
+        self.thinking = thinking
         self.base_url = (base_url or os.environ.get("AGENT_LLM_BASE_URL")
                          or "https://api.deepseek.com/v1").rstrip("/")
         # .strip(): a key copied out of a CRLF .env carries a trailing \r, and
@@ -151,6 +160,8 @@ class OpenAICompatLLM:
             payload["tools"] = tools
             # ``tool_choice`` may name one function ({"type": "function", "function": {"name": ...}}) to force it.
             payload["tool_choice"] = tool_choice or "auto"
+        if self.thinking:
+            payload["thinking"] = {"type": self.thinking}
 
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}

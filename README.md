@@ -413,7 +413,7 @@ npm run dev
 
 | 类别 | 常用变量 | 用途 |
 | --- | --- | --- |
-| 通用模型 | `AGENT_LLM_MODEL`, `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY` | Agent V2 及共享模型入口 |
+| 通用模型 | `AGENT_LLM_MODEL`, `AGENT_LLM_BASE_URL`, `AGENT_LLM_API_KEY`, `AGENT_LLM_THINKING` | Agent V2 及共享模型入口；DeepSeek 默认开启思考模式，生产环境建议设为 `disabled` |
 | 模型供应商 | `DEEPSEEK_API_KEY`, `OPENAI_API_KEY` | DeepSeek、OpenAI 兼容能力或 Embedding |
 | Agent V3 | `AGENT_V3_MODEL`, `AGENT_V3_BASE_URL`, `AGENT_V3_API_KEY`, `AGENT_V3_THINKING` | V3 独立模型配置 |
 | 财务数据 | `FINANCIAL_DATASETS_API_KEY` | 财务、价格和公司数据 |

@@ -78,6 +78,7 @@ GET  /api/agent-v2/jobs/{job_id}
 
 ```text
 AGENT_LLM_MODEL
+AGENT_LLM_THINKING   # enabled / disabled；DeepSeek 默认开启思考，会显著拖慢每次调用并拒绝指定 tool_choice
 AGENT_LLM_BASE_URL
 AGENT_LLM_API_KEY
 AGENT_V2_WEB_ENABLED
