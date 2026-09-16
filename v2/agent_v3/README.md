@@ -53,6 +53,7 @@ flowchart TD
 | `context.py` / `page_context.py` | 会话和网页上下文解析 |
 | `research.py` / `market.py` / `sec.py` | 研究、行情和 SEC 证据处理 |
 | `portfolio_*.py` | 组合概览、风险分析和验收支持 |
+| `institutional.py` | 基金经理 13F 持仓：别名解析、字段级证据、季度增减仓 |
 | `news_research.py` / `specialists.py` | 新闻检索及受 schema 约束的专家流程 |
 | `tests/` | 单元、契约、边界和回归测试 |
 | `*_acceptance.py` / `*_eval.py` / `live_smoke.py` | 开发期验收和评测脚手架；不是正式测评报告 |
