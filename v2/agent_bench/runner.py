@@ -155,8 +155,10 @@ class Run:
                     row = self.attempt(case, version, attempt)
                     rows.append(row)
                     score = row["score"]
-                    self.progress(f"END   [{done}/{total}] {case.id} {version} #{attempt} {'PASS' if score['passed'] else 'FAIL'} {row['status']} {row['elapsed_s']}s"
-                                  + (f" missing={score['fixture_missing']}" if score["fixture_missing"] else "") + (f" :: {'; '.join(score['problems'][:2])}" if score["problems"] else ""))
+                    verdict = "PASS" if score["passed"] else ("RECORDED" if self.mode == "record" and self.judge is None else ("UNJUDGED" if not score["judged"] else "FAIL"))
+                    problems = [p for p in score["problems"] if p != "未经裁判评分"]
+                    self.progress(f"END   [{done}/{total}] {case.id} {version} #{attempt} {verdict} {row['status']} {row['elapsed_s']}s"
+                                  + (f" missing={score['fixture_missing']}" if score["fixture_missing"] else "") + (f" :: {'; '.join(problems[:2])}" if problems else ""))
         return rows
 
 
