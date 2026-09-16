@@ -310,19 +310,21 @@ def register_specialists(registry, model, *, search=None, filing_source=None, re
         registry.register(capability, handler)
 
 
+#: The reviewer sees every evidence row in its input; there is nothing for a
+#: tool to fetch.  A per-item read tool made it walk an 80-row comparison one
+#: row at a time until the recursion limit (325k input tokens for nothing).
+REVIEW_RECURSION_LIMIT = 8
+
+
 def make_reviewer(model):
     def review(state, run):
         known = {row["id"]: row for row in state.get("evidence", [])}
-        def read_evidence(evidence_id: str) -> str:
-            """Read one evidence item already collected for this answer."""
-            if evidence_id not in known:
-                raise ValueError("Unknown evidence ID")
-            return json.dumps(known[evidence_id], ensure_ascii=False)
-        agent, _ = specialist_graph(model, [read_evidence], Review,
+        agent, _ = specialist_graph(model, [], Review,
             "审阅投研答案，只提出已有证据支持的异议，每条异议引用被质疑的答案原句（claim）并指向给定 evidence_id。"
+            "全部证据已在输入中给出，不需要也无法再读取。"
             "severity=material 仅用于：采纳后会改变结论；把数据缺失或未运行的模块说成已确认事实；隐瞒证据中的低置信度或缺口。"
             "纯措辞精确度问题标记 severity=minor。不要为凑数而列异议；答案与证据一致时返回空 objections，这是正常结果。", run, "debater")
-        output = agent.invoke({"messages": [("human", json.dumps({"question": state["text"], "answer": state["answer"], "evidence": list(known.values())}, ensure_ascii=False))]}, context=run, config={"recursion_limit": 40})
+        output = agent.invoke({"messages": [("human", json.dumps({"question": state["text"], "answer": state["answer"], "evidence": list(known.values())}, ensure_ascii=False))]}, context=run, config={"recursion_limit": REVIEW_RECURSION_LIMIT})
         result = output.get("structured_response")
         return [row.model_dump() for row in result.objections if row.evidence_id in known] if isinstance(result, Review) else []
     return review

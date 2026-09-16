@@ -43,6 +43,17 @@ def call(name, args, index):
     return AIMessage(content="", tool_calls=[{"name":name,"args":args,"id":f"call-{index}","type":"tool_call"}])
 
 
+def test_reviewer_uses_inline_evidence_in_a_single_round():
+    from v2.agent_v3.specialists import make_reviewer
+    kept = {"objection": "估值判断无来源", "evidence_id": "e1", "severity": "material", "claim": "估值中等"}
+    model = ScriptedModel(responses=[call("Review", {"objections": [kept, {"objection": "幽灵", "evidence_id": "ghost"}]}, 1)])
+    run = RunContext("test", time.monotonic() + 10)
+    state = {"text": "分析一下 NVDA", "answer": "估值中等 [e1]", "evidence": [{"id": "e1", "claim": "valuation 43"}]}
+    assert make_reviewer(model)(state, run) == [kept]
+    assert len(model._seen) == 1, "no tool rounds: the evidence is already in the prompt"
+    assert "valuation 43" in str(model._seen[0])
+
+
 def test_langchain_agent_executes_tool_then_validated_finish(monkeypatch):
     from v2.agent_v2.agents.base import BoundedLoop
     monkeypatch.setattr(BoundedLoop,"run",lambda *args,**kwargs: pytest.fail("V2 loop must not run"))
