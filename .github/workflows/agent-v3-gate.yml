@@ -18,8 +18,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - run: python -m pip install -r v2/agent_v3/requirements.lock
+          # The business lock (yfinance, edgartools, pandas, scipy 1.18) is
+          # generated on 3.12 and is what the VPS runs; the core lock alone
+          # cannot even collect the tests (pandas, beautifulsoup4).
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: v2/agent_v3/requirements-business.lock
+      - run: python -m pip install -r v2/agent_v3/requirements-business.lock
       - run: python -m pip check
       - run: python -m pytest v2/agent_v3/tests v2/agent_common -q -p no:cacheprovider
       - run: python -m v2.agent_v3 --demo
