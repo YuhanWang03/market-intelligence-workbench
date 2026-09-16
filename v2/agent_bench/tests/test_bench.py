@@ -97,6 +97,19 @@ def test_grade_combines_judge_and_deterministic_checks():
     assert not missing_agent.route_ok
 
 
+def test_source_families_accept_both_agents_vocabularies():
+    case = BenchCase("t", "news", "q", ("有新闻",), must_cite=("web",))
+    verdict = {"criteria": [{"index": 0, "met": True}], "forbidden": []}
+    v2 = _result("见报道 [n1]", evidence=[{"id": "n1", "source_id": "web_news"}])
+    v3 = _result("见报道 [n2]", evidence=[{"id": "n2", "source_id": "https://example.com/story"}])
+    assert grade(case, "v2", v2, verdict).sources_ok and grade(case, "v3", v3, verdict).sources_ok
+    thirteen_f = BenchCase("t", "manager", "q", ("x",), must_cite=("13f",))
+    assert grade(thirteen_f, "v2", _result("[a]", evidence=[{"id": "a", "source_id": "institutional.manager_portfolio"}]), verdict).sources_ok
+    assert grade(thirteen_f, "v3", _result("[b]", evidence=[{"id": "b", "source_id": "sec_13f_hr"}]), verdict).sources_ok
+    assert not grade(thirteen_f, "v3", _result("[c]", evidence=[{"id": "c", "source_id": "market_data"}]), verdict).sources_ok
+    assert all(p in {"market", "web", "filings", "financial", "account"} for c in case_module.carried_over() for p in c.must_cite)
+
+
 def test_grade_confirmation_cases_require_the_waiting_status_and_no_write():
     case = BenchCase("t", "command", "加入关注", ("要求确认",), expect_status=("waiting_confirmation",), forbid_capabilities=("state.mutate",))
     verdict = {"criteria": [{"index": 0, "met": True}], "forbidden": []}

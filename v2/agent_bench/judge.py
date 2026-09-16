@@ -22,6 +22,28 @@ from v2.agent_bench.cases import BenchCase
 
 _CITATION = re.compile(r"\[([A-Za-z0-9_.:\-]+)\]")
 
+#: ``must_cite`` names a source family; each agent labels the same kind of
+#: evidence differently (V2 ``web_news`` vs V3 the page URL, V2's legacy 13F
+#: card vs V3 ``sec_13f_hr``), so the family is what a case can require.
+SOURCE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "market": ("market_data",),
+    "web": ("web_news", "web:", "web", "http"),
+    "filings": ("sec_edgar", "sec_filings", "sec_filing", "sec_", "www.sec.gov", "http", "filings."),
+    "financial": ("fd_", "sec-fin", "research_engine", "conditional_financial"),
+    "13f": ("sec_13f", "institutional.manager_portfolio"),
+    "ark": ("ark_daily", "etf.ark_activity"),
+    "earnings": ("yf_calendar", "yfinance_earnings", "account.earnings_schedule"),
+    "account": ("account.",),
+}
+
+
+def source_prefixes(required: tuple[str, ...]) -> tuple[str, ...]:
+    """Expand family names to the prefixes both agents use; a literal prefix passes through."""
+    out: list[str] = []
+    for item in required:
+        out.extend(SOURCE_FAMILIES.get(item, (item,)))
+    return tuple(out)
+
 Verdict = dict[str, Any]
 RubricJudgeFn = Callable[[str, str, list[str], list[str]], Verdict]
 PairJudgeFn = Callable[[str, list[str], str, str], Verdict]
@@ -82,9 +104,10 @@ def grade(case: BenchCase, version: str, result: dict[str, Any], verdict: Verdic
     sources_ok = True
     if case.must_cite:
         cited = cited_source_ids(answer, result.get("evidence") or [])
-        sources_ok = any(source.startswith(prefix) for source in cited for prefix in case.must_cite)
+        prefixes = source_prefixes(case.must_cite)
+        sources_ok = any(source.startswith(prefix) for source in cited for prefix in prefixes)
         if not sources_ok:
-            problems.append(f"未引用要求的来源 {case.must_cite}（引用到的：{sorted(cited) or '无'}）")
+            problems.append(f"未引用要求的来源 {case.must_cite}（引用到的：{sorted(s[:40] for s in cited) or '无'}）")
     status_ok = (status in case.expect_status) if case.expect_status else (status not in {"failed", "cancelled"} and not result.get("error"))
     if not status_ok:
         problems.append(f"状态 {status or '?'}" + (f"，期望 {case.expect_status}" if case.expect_status else "") + (f"：{str(result.get('error'))[:80]}" if result.get("error") else ""))

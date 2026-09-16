@@ -94,8 +94,11 @@ def _quality_category(case_id: str, tags: tuple[str, ...]) -> str:
     return "market"
 
 
+_QUALITY_SOURCE_FAMILY = {"market_data": "market", "web": "web", "sec_": "filings", "fd_": "financial", "account.portfolio": "account", "account.": "account"}
+
+
 def from_quality(source) -> BenchCase:
-    """A V2 quality case with its V2-only expectations scoped to V2."""
+    """A V2 quality case with its V2-only expectations scoped to V2 and its source prefixes mapped to families."""
     expectations: dict[str, dict[str, Any]] = {}
     v2: dict[str, Any] = {}
     if source.expected_route is not None:
@@ -104,7 +107,7 @@ def from_quality(source) -> BenchCase:
         v2["agents"] = list(source.expected_agents)
     if v2:
         expectations["v2"] = v2
-    return BenchCase(source.id, _quality_category(source.id, tuple(source.tags)), source.question, tuple(source.criteria), tuple(source.forbidden), tuple(source.must_cite),
+    return BenchCase(source.id, _quality_category(source.id, tuple(source.tags)), source.question, tuple(source.criteria), tuple(source.forbidden), tuple(_QUALITY_SOURCE_FAMILY.get(p, p) for p in source.must_cite),
                      tuple(source.preceding), source.allow_web, source.set, tuple(source.tags), expectations=expectations, max_chars=source.max_chars, origin="quality_v2", note=source.note)
 
 
@@ -136,19 +139,19 @@ SEED_CASES: tuple[BenchCase, ...] = (
          "写出了 13F 报告期（季度末日期）和申报日期，并说明持仓可能已经变化",
          "列出了至少三个最大持仓，每个带市值或占比",
          "说明了与上一季度相比的增减仓或清仓，或者明确说没有对比数据",
-         forbidden=("把 13F 数据说成当前实时持仓",), must_cite=("sec_13f", "legacy"), tags=("13f",)),
+         forbidden=("把 13F 数据说成当前实时持仓",), must_cite=("13f",), tags=("13f",)),
     case("s_manager_unknown", "manager", "张三资本最近买了什么？",
          "明确说明不认识或不跟踪这个机构，并列出可以查询的机构",
          forbidden=("为不存在的机构编造持仓",), tags=("13f", "unknown_entity")),
     case("s_manager_burry_changes", "manager", "Michael Burry 上个季度清仓了哪些股票？",
          "回答限定在最近一期 13F 相对上一期的变动，并给出清仓或减持的具体股票",
          "说明了报告期和申报滞后",
-         forbidden=("把增持说成清仓",), must_cite=("sec_13f", "legacy"), tags=("13f",)),
+         forbidden=("把增持说成清仓",), must_cite=("13f",), tags=("13f",)),
     # -- ARK ----------------------------------------------------------------------------
     case("s_ark_activity", "ark", "木头姐最近买了什么？",
          "指明了对应的 ARK 基金代码和持仓快照日期",
          "列出了相对上一份快照的新建仓、加仓或清仓，或明确说没有可比快照",
-         forbidden=("把持仓快照日期之后的交易当作已知事实",), must_cite=("ark", "legacy"), tags=("etf",)),
+         forbidden=("把持仓快照日期之后的交易当作已知事实",), must_cite=("ark",), tags=("etf",)),
     case("s_ark_unsupported", "ark", "ARKQ 最近的持仓变化？",
          "说明该基金目前无法查询，并列出可以查询的 ARK 基金",
          forbidden=("给出 ARKQ 的持仓数字",), tags=("etf", "unknown_entity")),
@@ -156,7 +159,7 @@ SEED_CASES: tuple[BenchCase, ...] = (
     case("s_earnings_window", "earnings", "未来两周我的持仓里有哪些公司要发财报？",
          "按日期列出窗口内的财报，标明持仓还是关注列表",
          "说明了没有排期信息或日历未覆盖的标的，或明确说全部都有",
-         forbidden=("推测没有排期信息的公司的财报日期",), must_cite=("yfinance_earnings", "legacy"), tags=("portfolio",)),
+         forbidden=("推测没有排期信息的公司的财报日期",), must_cite=("earnings",), tags=("portfolio",)),
     case("s_etf_holdings", "etf", "SPY 的前五大持仓是什么？",
          "列出了五个持仓及其权重",
          "说明了权重的口径或数据日期限制",
@@ -169,7 +172,7 @@ SEED_CASES: tuple[BenchCase, ...] = (
     case("s_filing_risk_factor", "filings", "NVDA 最新 10-K 里关于供应链的风险因素怎么说？",
          "引用了申报原文或明确标注为原文摘录的句子",
          "写出了申报表格类型和日期",
-         forbidden=("把分析师观点当作申报原文",), must_cite=("sec", "edgar", "filing"), tags=("filing",)),
+         forbidden=("把分析师观点当作申报原文",), must_cite=("filings",), tags=("filing",)),
     case("s_filing_scope", "filings", "AAPL 最近 30 天有哪些 8-K？",
          "只列出窗口内的 8-K 申报，每条带日期",
          "窗口内没有申报时明确说没有，不用其他表格凑数",
