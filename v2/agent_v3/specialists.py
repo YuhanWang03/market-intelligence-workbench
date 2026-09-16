@@ -319,7 +319,9 @@ def make_reviewer(model):
                 raise ValueError("Unknown evidence ID")
             return json.dumps(known[evidence_id], ensure_ascii=False)
         agent, _ = specialist_graph(model, [read_evidence], Review,
-            "审阅投研答案，只提出已有证据支持的异议。每条异议必须指向给定 evidence_id。没有则返回空 objections。", run, "debater")
+            "审阅投研答案，只提出已有证据支持的异议，每条异议引用被质疑的答案原句（claim）并指向给定 evidence_id。"
+            "severity=material 仅用于：采纳后会改变结论；把数据缺失或未运行的模块说成已确认事实；隐瞒证据中的低置信度或缺口。"
+            "纯措辞精确度问题标记 severity=minor。不要为凑数而列异议；答案与证据一致时返回空 objections，这是正常结果。", run, "debater")
         output = agent.invoke({"messages": [("human", json.dumps({"question": state["text"], "answer": state["answer"], "evidence": list(known.values())}, ensure_ascii=False))]}, context=run, config={"recursion_limit": 40})
         result = output.get("structured_response")
         return [row.model_dump() for row in result.objections if row.evidence_id in known] if isinstance(result, Review) else []

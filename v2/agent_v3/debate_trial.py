@@ -65,6 +65,8 @@ def analyse(result: dict, debate_enabled: bool) -> dict:
             outcome = "reviewer_error"
         elif not objections:
             outcome = "no_objections"
+        elif not record.get("revised"):
+            outcome = "minor_only"
         elif record.get("revised_verified"):
             outcome = "revised_accepted"
         else:
@@ -85,6 +87,7 @@ def analyse(result: dict, debate_enabled: bool) -> dict:
         "skip_reason": skipped,
         "outcome": outcome,
         "objection_count": len(objections),
+        "material_count": sum(1 for row in objections if not isinstance(row, dict) or row.get("severity", "material") == "material"),
         "objections": objections,
         "route": route,
         "status": result.get("status"),
@@ -103,7 +106,7 @@ def _summary(rows: list[dict]) -> str:
     lines = [
         "# Agent V3 debate trial",
         "",
-        "| # | question | mode | status | s | debate ran | skipped because | objections | outcome | verify ok | in/out tokens |",
+        "| # | question | mode | status | s | debate ran | skipped because | objections (material) | outcome | verify ok | in/out tokens |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for row in rows:
@@ -111,7 +114,7 @@ def _summary(rows: list[dict]) -> str:
         tokens = a["tokens"]
         lines.append(
             f"| {row['case']} | {row['question']} | {row['mode']} | {a['status']} | {round((a['elapsed_ms'] or 0) / 1000)} | "
-            f"{'yes' if a['debate_ran'] else 'no'} | {a['skip_reason'] or '-'} | {a['objection_count']} | {a['outcome'] or '-'} | "
+            f"{'yes' if a['debate_ran'] else 'no'} | {a['skip_reason'] or '-'} | {a['objection_count']} ({a.get('material_count', a['objection_count'])}) | {a['outcome'] or '-'} | "
             f"{'yes' if a['verification_ok'] else 'no'} | {tokens['input']}/{tokens['output']} |"
         )
     lines.append("")
@@ -120,7 +123,7 @@ def _summary(rows: list[dict]) -> str:
             lines.append(f"## Objections · case {row['case']} ({row['mode']}) · {row['question']}")
             for objection in row["analysis"]["objections"]:
                 if isinstance(objection, dict):
-                    lines.append(f"- [{objection.get('evidence_id', '?')}] {objection.get('text') or objection.get('objection') or json.dumps(objection, ensure_ascii=False)}")
+                    lines.append(f"- ({objection.get('severity', 'material')}) [{objection.get('evidence_id', '?')}] {objection.get('objection') or json.dumps(objection, ensure_ascii=False)}" + (f"\n  > {objection['claim']}" if objection.get('claim') else ""))
                 else:
                     lines.append(f"- {objection}")
             lines.append("")

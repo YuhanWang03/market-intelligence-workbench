@@ -282,7 +282,7 @@ def test_debate_revision_that_verifies_replaces_the_answer_and_is_recorded():
     result = agent.run(DEMO_QUESTION)
     assert result.status == RunStatus.COMPLETED
     assert "收盘口径" in result.answer
-    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": True}
+    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": True, "material": 1}
     assert result.synthesis["objections"] == [OBJECTION]
     assert len(result.synthesis["attempts"]) == 2 and result.synthesis["attempts"][-1]["ok"]
     assert not result.verification.warnings
@@ -294,9 +294,36 @@ def test_debate_revision_that_fails_keeps_the_answer_and_surfaces_objections():
     assert result.status == RunStatus.COMPLETED
     assert "999" not in result.answer and "demo-price" in result.answer
     assert result.verification.ok
-    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": False}
+    assert result.synthesis["debate"] == {"ran": True, "objections": [OBJECTION], "revised": True, "revised_verified": False, "material": 1}
     assert any("审阅异议" in note and "demo-price" in note for note in result.verification.warnings)
     assert result.synthesis["attempts"][-1]["rejected_draft"].startswith("NVDA 收盘价为 999")
+
+
+def test_minor_objections_are_shown_without_a_redraft():
+    minor = {**OBJECTION, "severity": "minor", "claim": "NVDA 收盘价为 120 美元。"}
+    drafted = []
+    agent = _research_agent(lambda state, run: [minor], "unused")
+    original_draft = agent.brain.draft
+    def spy(state, registry, run, **kwargs):
+        drafted.append(kwargs)
+        return original_draft(state, registry, run, **kwargs)
+    agent.brain.draft = spy
+    result = agent.run(DEMO_QUESTION)
+    assert result.status == RunStatus.COMPLETED and result.verification.ok
+    assert not any(kw.get("objections") for kw in drafted), "a minor-only review must not redraft"
+    assert result.synthesis["debate"] == {"ran": True, "objections": [minor], "revised": False, "revised_verified": False, "material": 0}
+    assert any(note.startswith("审阅提示：") and "demo-price" in note for note in result.verification.warnings)
+
+
+def test_objection_schema_defaults_and_bounds():
+    from pydantic import ValidationError
+    from v2.agent_v3.contracts import Objection, Review
+    assert Objection(objection="x", evidence_id="e").severity == "material"
+    assert Review().objections == []
+    with pytest.raises(ValidationError):
+        Objection(objection="x", evidence_id="e", severity="severe")
+    with pytest.raises(ValidationError):
+        Review(objections=[Objection(objection=str(i), evidence_id="e") for i in range(7)])
 
 
 def test_skipped_debate_records_why():

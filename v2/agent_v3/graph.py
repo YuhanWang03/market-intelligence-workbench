@@ -413,7 +413,14 @@ class AgentV3:
             record["objections"] = objections
             if not objections:
                 return {"objections": [], "debate": record}
-            revised = self.brain.draft(state, self.registry, run, objections=objections)
+            material = [row for row in objections if not isinstance(row, dict) or row.get("severity", "material") == "material"]
+            record["material"] = len(material)
+            if not material:
+                # Wording-only review: not worth a redraft and a second verification; show it instead.
+                kept = dict(state.get("report", {}))
+                kept["warnings"] = [*kept.get("warnings", []), *(f"审阅提示：{row.get('objection')} [{row.get('evidence_id', '?')}]" for row in objections)]
+                return {"objections": objections, "debate": record, "report": kept}
+            revised = self.brain.draft(state, self.registry, run, objections=material)
             record["revised"] = True
             answer, report = self._report(revised, state, run)
             record["revised_verified"] = bool(report.get("ok"))

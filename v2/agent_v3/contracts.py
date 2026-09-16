@@ -129,12 +129,24 @@ class PlannedTasks(BaseModel):
 
 
 class Objection(BaseModel):
+    """One reviewer objection, anchored to the answer sentence and the evidence it contradicts.
+
+    ``material``: acting on it would change a conclusion, or the answer states a
+    data gap as a confirmed fact (or hides one).  ``minor``: wording precision
+    only.  Only material objections trigger a redraft; minor ones are shown to
+    the reader as review notes.
+    """
+
     objection: str
     evidence_id: str
+    severity: Literal["material", "minor"] = "material"
+    claim: str = ""  # the answer sentence objected to, quoted
 
 
 class Review(BaseModel):
-    objections: list[Objection] = Field(default_factory=list, max_length=3)
+    """Zero objections is a valid, expected review; the list is not to be padded."""
+
+    objections: list[Objection] = Field(default_factory=list, max_length=6)
 
 
 class ClaimViolation(BaseModel):
