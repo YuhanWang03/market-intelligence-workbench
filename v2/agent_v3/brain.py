@@ -75,6 +75,11 @@ class ModelBrain:
         if registry.registered("account.ranking") and intent.portfolio_scope and (intent.wants_any("ranking") or request.metadata.get("portfolio_metric")):
             metric=request.metadata.get("portfolio_metric") or ("daily_return" if intent.scope=="today" else "unrealized_percent")
             return replace(deterministic,tasks=(PlanTask("portfolio-ranking","account.ranking",{"metric":metric,"direction":"high" if intent.rank=="high" else "low"}),),assumptions=(),web_fallback_allowed=False)
+        # Questions the account already has a dedicated tool for must not be absorbed by the overview below.
+        if intent.portfolio_scope and not intent.tickers and not intent.each and registry.registered("account.earnings_schedule") and intent.wants_any("earnings"):
+            return replace(deterministic,tasks=(PlanTask("account-earnings","account.earnings_schedule",{"days":14},purpose="upcoming earnings across holdings and watchlist"),),assumptions=(),web_fallback_allowed=False)
+        if intent.portfolio_scope and not intent.tickers and intent.periods and registry.registered("account.performance") and not intent.wants_any("ranking","risk","earnings"):  # periods is only ever filled for an account P&L question
+            return replace(deterministic,tasks=tuple(PlanTask(f"account-performance-{period}","account.performance",{"period":period},purpose=f"account P&L for the {period}") for period in intent.periods),assumptions=(),web_fallback_allowed=False)
         if registry.registered("account.overview") and intent.portfolio_scope and not intent.tickers and not intent.each and intent.kind in {"research", "lookup"} and not intent.wants_any("ranking", "attribution", "drawdown", "runup", "news"):
             tasks = [PlanTask("portfolio-overview", "account.overview", purpose="Calculate the whole portfolio before any optional investigation")]
             if registry.registered("market.performance"):

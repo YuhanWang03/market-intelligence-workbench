@@ -77,7 +77,14 @@ class SemanticIntent(BaseModel):
     lab: Literal["", "backtest", "sweep", "event_study", "screen", "committee"] = ""
     strategy: str = ""
     lab_scale: Literal["", "deep"] = ""
-    periods: list[str] = Field(default_factory=list)
+    periods: list[str] = Field(default_factory=list, json_schema_extra={"items":{"type":"string","enum":["day","week","month"]}}, description="账户盈亏口径：今天=day，本周=week，本月=month")
+
+    @field_validator("periods", mode="before")
+    @classmethod
+    def account_periods(cls, values):
+        # The P&L tool takes day/week/month; "today" or "month_to_date" name the same windows.
+        names = {"day":"day","today":"day","daily":"day","week":"week","week_to_date":"week","wtd":"week","weekly":"week","month":"month","month_to_date":"month","mtd":"month","monthly":"month"}
+        return list(dict.fromkeys(names[str(value).lower()] for value in (values or []) if str(value).lower() in names))
     each: bool = False
     rank: Literal["", "high", "low"] = ""
     confidence: float = Field(default=1, ge=0, le=1)

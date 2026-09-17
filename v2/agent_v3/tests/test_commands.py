@@ -23,3 +23,8 @@ def test_price_alert_keeps_direction_and_price_through_to_the_task():
 def test_planner_refuses_an_operation_it_does_not_know(operation):
     task, problem = mutation_task(Intent(kind="command", tickers=("NVDA",), command={"operation": operation}), ("NVDA",))
     assert task is None and "关注列表" in problem
+
+
+def test_account_periods_are_normalised_to_the_tool_enum():
+    intent = SemanticIntent.model_validate({"kind": "research", "portfolio_scope": True, "wants": ["performance"], "periods": ["today", "month_to_date", "day", "decade"]})
+    assert intent.periods == ["day", "month"]

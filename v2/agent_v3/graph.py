@@ -131,7 +131,7 @@ class AgentV3:
             ask = "我只能管理关注列表和价格提醒，不能下单交易，也不会替你买卖。" + (f"你是想把 {ticker} 加入关注列表，还是设置价格提醒？" if ticker else "需要的话可以告诉我把哪只股票加入关注列表或设置价格提醒。")
             understanding = understanding.model_copy(update={"command": None, "kind": "help", "clarification": ask, "refers_back": False})
         holding=state.get("history",{}).get("portfolio_context",{})
-        if understanding.market_scope=="us_broad" and "macro" not in understanding.wants:
+        if understanding.market_scope=="us_broad" and not set(understanding.wants) & {"macro", "briefing"}:
             understanding=understanding.model_copy(update={"tickers":["SPY","QQQ","DIA"],"wants":["performance"],"kind":"lookup","portfolio_scope":False,"portfolio_followup":"","portfolio_metric":"","analysis_scope":"focused","refers_back":False,"clarification":""})
         if understanding.portfolio_followup=="explain_position":
             ticker=next(iter(understanding.tickers),None) or holding.get("ticker")

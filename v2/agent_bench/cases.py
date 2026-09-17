@@ -160,7 +160,7 @@ SEED_CASES: tuple[BenchCase, ...] = (
          forbidden=("声称知道最新一份持仓快照日期之后发生的具体买卖（提醒“此后可能已变化”不算）",), must_cite=("ark",), tags=("etf",)),
     case("s_ark_unsupported", "ark", "ARKQ 最近的持仓变化？",
          "说明该基金目前无法查询，并列出可以查询的 ARK 基金",
-         forbidden=("给出 ARKQ 的持仓数字",), tags=("etf", "unknown_entity")),
+         forbidden=("给出 ARKQ 的持仓变化数字（新建仓、增减持、清仓）；标明口径的当前持仓权重不算",), tags=("etf", "unknown_entity")),
     # -- earnings calendar / ETF / macro -------------------------------------------------
     case("s_earnings_window", "earnings", "未来两周我的持仓里有哪些公司要发财报？",
          "按日期列出窗口内的财报，标明持仓还是关注列表",
