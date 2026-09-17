@@ -111,6 +111,28 @@ def test_source_families_accept_both_agents_vocabularies():
     assert all(p in {"market", "web", "filings", "financial", "account"} for c in case_module.carried_over() for p in c.must_cite)
 
 
+def test_malformed_verdicts_are_unjudged_not_crashes():
+    from v2.agent_bench.judge import verdict_is_valid
+    case = BenchCase("t", "news", "q", ("x",), forbidden=("y",))
+    bad = {"criteria": [{"index": 0, "met": True}], "forbidden": ["y"]}
+    assert not verdict_is_valid(bad) and verdict_is_valid({"criteria": [{"index": 0, "met": True}], "forbidden": [{"index": 0, "asserted": False}]})
+    score = grade(case, "v3", _result("a"), bad)
+    assert not score.judged and not score.passed and "裁判返回格式无效" in score.problems
+
+
+def test_rerunning_a_label_resumes_where_it_stopped(tmp_path):
+    demo = BenchCase("demo", "market", "查询 NVDA 的行情（离线演示）", ("给出了价格",))
+    run, rows = _offline_run(tmp_path, [demo], repeat=2)
+    assert len(rows) == 4
+    resumed = Run(label="t", mode="offline", versions=("v2", "v3"), seconds=20, workdir=tmp_path / "runs", bank=Bank(tmp_path / "bank"), repeat=3)
+    resumed.build()
+    try:
+        more = resumed.run([demo])
+    finally:
+        resumed.close()
+    assert len(more) == 2 and {r["attempt"] for r in more} == {3} and len(read_ledger(resumed.root)) == 6
+
+
 def test_grade_confirmation_cases_require_the_waiting_status_and_no_write():
     case = BenchCase("t", "command", "加入关注", ("要求确认",), expect_status=("waiting_confirmation",), forbid_capabilities=("state.mutate",))
     verdict = {"criteria": [{"index": 0, "met": True}], "forbidden": []}

@@ -18,7 +18,7 @@ from typing import Any, Callable
 from v2.agent_bench import agents as agent_builders
 from v2.agent_bench.bank import Bank, Recorder, Replay
 from v2.agent_bench.cases import BenchCase
-from v2.agent_bench.judge import RubricJudgeFn, Score, grade
+from v2.agent_bench.judge import RubricJudgeFn, Score, grade, verdict_is_valid
 
 logger = logging.getLogger(__name__)
 
@@ -109,11 +109,17 @@ class Run:
         fixture_missing = len(self.replay[version].missing()) if version in self.replay else 0
         verdict = None
         if self.judge is not None and result.get("answer"):
-            try:
-                verdict = self.judge(case.question, str(result.get("answer") or ""), list(case.criteria), list(case.forbidden))
-            except Exception as exc:  # noqa: BLE001 — an unjudged row is recorded as such
-                verdict = None
-                error = error or f"judge: {type(exc).__name__}: {str(exc)[:200]}"
+            for _ in range(2):  # one retry for a malformed verdict, as V2's grader does
+                try:
+                    verdict = self.judge(case.question, str(result.get("answer") or ""), list(case.criteria), list(case.forbidden))
+                except Exception as exc:  # noqa: BLE001 — an unjudged row is recorded as such
+                    verdict = None
+                    error = error or f"judge: {type(exc).__name__}: {str(exc)[:200]}"
+                    break
+                if verdict_is_valid(verdict):
+                    break
+            if verdict is not None and not verdict_is_valid(verdict):
+                error = error or "judge: malformed verdict twice"
         score = grade(case, version, result, verdict, fixture_missing=fixture_missing)
         if self.mode == "record":
             self.bank.save(case.id, self.recorder[version].records)
@@ -139,9 +145,13 @@ class Run:
 
     # -- the loop ------------------------------------------------------------------------------
     def run(self, cases: list[BenchCase]) -> list[dict[str, Any]]:
+        """Every (case, version, attempt) not already in this label's ledger; rerunning a label resumes it."""
         rows: list[dict[str, Any]] = []
         total = len(cases) * len(self.versions) * self.repeat
         done = 0
+        finished = {(r["case_id"], r["version"], r["attempt"]) for r in read_ledger(self.root)}
+        if finished:
+            self.progress(f"RESUME {self.label}: {len(finished)} attempts already in the ledger will be skipped")
         for attempt in range(1, self.repeat + 1):
             for index, case in enumerate(cases):
                 if case.frozen_only and self.mode not in {"frozen", "offline"}:
@@ -151,6 +161,8 @@ class Run:
                 order = list(self.versions) if (index + attempt) % 2 == 0 else list(reversed(self.versions))
                 for version in order:
                     done += 1
+                    if (case.id, version, attempt) in finished:
+                        continue
                     self.progress(f"START [{done}/{total}] {case.id} {version} #{attempt}")
                     row = self.attempt(case, version, attempt)
                     rows.append(row)

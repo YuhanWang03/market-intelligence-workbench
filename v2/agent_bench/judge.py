@@ -96,6 +96,17 @@ def cited_source_ids(answer: str, evidence: list[dict[str, Any]]) -> set[str]:
     return {by_id[ref] for ref in _CITATION.findall(answer or "") if ref in by_id}
 
 
+def verdict_is_valid(verdict: Verdict | None) -> bool:
+    """Both lists present and every row an object with an integer index; anything else is retried, then recorded as unjudged."""
+    if not isinstance(verdict, dict):
+        return False
+    for key in ("criteria", "forbidden"):
+        rows = verdict.get(key)
+        if not isinstance(rows, list) or not all(isinstance(row, dict) and str(row.get("index", "")).lstrip("-").isdigit() for row in rows):
+            return False
+    return True
+
+
 def grade(case: BenchCase, version: str, result: dict[str, Any], verdict: Verdict | None, *, fixture_missing: int = 0) -> Score:
     answer = str(result.get("answer") or "")
     status = str(result.get("status") or "")
@@ -132,7 +143,7 @@ def grade(case: BenchCase, version: str, result: dict[str, Any], verdict: Verdic
             route_ok = False
             problems.append(f"未运行子智能体 {missing}")
     # -- judge
-    judged = verdict is not None and isinstance(verdict.get("criteria"), list)
+    judged = verdict_is_valid(verdict)
     criteria_rows: list[dict[str, Any]] = []
     forbidden_rows: list[dict[str, Any]] = []
     met = hit = 0
