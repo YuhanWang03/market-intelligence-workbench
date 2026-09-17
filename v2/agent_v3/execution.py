@@ -29,6 +29,70 @@ class ExecutionState(TypedDict, total=False):
     notes: list[str]
 
 
+#: Free-text topics the classifier or planner may put where a capability wants an
+#: enum ("行业与供应链风险" for research.stock's focus). First match wins.
+FOCUS_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("供应链", "supply_chain"), ("supply", "supply_chain"), ("估值", "valuation"), ("valuation", "valuation"),
+    ("财报", "earnings"), ("盈利", "earnings"), ("业绩", "earnings"), ("earnings", "earnings"),
+    ("基本面", "fundamentals"), ("fundamental", "fundamentals"), ("申报", "filings"), ("filing", "filings"),
+    ("催化", "catalysts"), ("catalyst", "catalysts"), ("机构", "ownership"), ("持仓", "ownership"), ("ownership", "ownership"),
+    ("行情", "market"), ("走势", "market"), ("market", "market"), ("风险", "risk"), ("risk", "risk"),
+    ("全面", "full"), ("full", "full"), ("概览", "overview"), ("overview", "overview"),
+)
+
+
+def coerce_enum_value(value, allowed, *, keywords=FOCUS_KEYWORDS):
+    """The enum member a free-text value means, or None when nothing in it maps."""
+    if value in allowed:
+        return value
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    for needle, target in keywords:
+        if needle.lower() in text and target in allowed:
+            return target
+    return None
+
+
+def coerce_plan_arguments(plan, registry):
+    """Rewrite enum-typed arguments the model phrased in prose into schema values.
+
+    A value with no mapping is dropped when the argument is optional and set to
+    the schema default (its first member) when required, so a stray topic
+    string never fails the whole run at validation.
+    """
+    from dataclasses import replace as _replace
+
+    tasks = []
+    notes = []
+    for task in plan.tasks:
+        spec = registry.catalog.get(task.capability)
+        if spec is None:
+            tasks.append(task)
+            continue
+        schema = spec.input_schema or {}
+        properties = schema.get("properties", {})
+        required = set(schema.get("required", []))
+        arguments = dict(task.arguments)
+        for name, value in list(arguments.items()):
+            allowed = (properties.get(name) or {}).get("enum")
+            if not allowed or value in allowed:
+                continue
+            coerced = coerce_enum_value(value, allowed)
+            if coerced is None and name in required:
+                coerced = allowed[0]
+            if coerced is None:
+                del arguments[name]
+                notes.append(f"{task.capability}.{name}={value!r} dropped (not in schema)")
+            else:
+                arguments[name] = coerced
+                notes.append(f"{task.capability}.{name}={value!r} read as {coerced!r}")
+        tasks.append(_replace(task, arguments=arguments) if arguments != dict(task.arguments) else task)
+    if not notes:
+        return plan
+    return _replace(plan, tasks=tuple(tasks), assumptions=(*plan.assumptions, *notes))
+
+
 def validate_plan(plan, registry, max_tasks=12):
     if len(plan.tasks) > max_tasks:
         raise ValueError("Task budget exceeded")

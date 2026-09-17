@@ -38,6 +38,36 @@ def test_source_review_avoids_duplicate_debate_but_keeps_answer_verification():
     finally:agent.store.close()
 
 
+def test_prose_enum_arguments_are_coerced_not_fatal():
+    from v2.agent_v3.execution import coerce_enum_value, coerce_plan_arguments
+    allowed = ["overview", "fundamentals", "valuation", "earnings", "market", "ownership", "catalysts", "filings", "supply_chain", "risk", "full"]
+    assert coerce_enum_value("行业与供应链风险", allowed) == "supply_chain"
+    assert coerce_enum_value("估值贵不贵", allowed) == "valuation" and coerce_enum_value("risk", allowed) == "risk"
+    assert coerce_enum_value("天气", allowed) is None and coerce_enum_value("full", allowed) == "full"
+    registry = Registry()
+    plan = ExecutionPlan("q", RouteKind.RESEARCH, tasks=(PlanTask("r", "research.stock", {"ticker": "QCOM", "focus": "行业与供应链风险"}), PlanTask("m", "market.performance", {"ticker": "QCOM"})))
+    fixed = coerce_plan_arguments(plan, registry)
+    assert fixed.tasks[0].arguments == {"ticker": "QCOM", "focus": "supply_chain"} and fixed.tasks[1] is plan.tasks[1]
+    assert any("read as 'supply_chain'" in note for note in fixed.assumptions)
+    validate_plan(fixed, registry)
+    with pytest.raises(Exception):
+        validate_plan(plan, registry)
+    # end to end: a brain that plans with a prose focus no longer fails the run
+    agent = build_demo_agent()
+    agent.registry.register("research.stock", lambda args, ctx: ToolEnvelope("research.stock", ResultStatus.COMPLETED, subject=args["ticker"], evidence=[EvidenceItem("r1", "NVDA", "NVDA 供应链集中。", source_id="research_engine")]))
+    class Prose(DemoBrain):
+        def classify(self, *args):
+            return SemanticIntent(kind="research", wants=["risk"], tickers=["NVDA"], focus=["行业与供应链风险"])
+        def plan(self, request, decision, registry, run):
+            return ExecutionPlan("q", RouteKind.RESEARCH, tasks=(PlanTask("r", "research.stock", {"ticker": "NVDA", "focus": "行业与供应链风险"}),), answer_mode=AnswerMode.RESEARCH_GROUNDED)
+        def draft(self, state, registry, run, **kwargs):
+            return "NVDA 供应链集中。[r1]"
+    agent.brain = Prose()
+    result = agent.run("上面第二点展开讲")
+    assert result.status != RunStatus.FAILED, result.error
+    assert result.plan.tasks[0].arguments["focus"] == "supply_chain"
+
+
 def test_repair_is_a_graph_cycle_not_hidden_in_synthesizer():
     class Repair(DemoBrain):
         def draft(self, state, registry, run, **kwargs):

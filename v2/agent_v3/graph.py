@@ -191,6 +191,10 @@ class AgentV3:
                 task = replace(task,arguments=arguments)
             scoped_tasks.append(task)
         plan = replace(plan,tasks=tuple(scoped_tasks))
+        # A topic the classifier phrased in prose ("行业与供应链风险") is mapped onto
+        # the capability's enum instead of failing the run at validation.
+        from v2.agent_v3.execution import coerce_plan_arguments
+        plan = coerce_plan_arguments(plan, self.registry)
         missing = [task.capability for task in plan.tasks if task.required and not self.registry.registered(task.capability)]
         if missing:
             from v2.agent_v3.availability import unavailable
