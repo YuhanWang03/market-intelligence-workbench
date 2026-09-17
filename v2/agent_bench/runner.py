@@ -184,6 +184,15 @@ class Run:
         return rows
 
 
+def drop_unjudged(root: Path) -> int:
+    """Remove rows a dead network left ungraded (judge or model unreachable) so a resume runs them again."""
+    rows = read_ledger(root)
+    keep = [row for row in rows if row["score"]["judged"] or not row.get("error")]
+    if len(keep) != len(rows):
+        (Path(root) / "ledger.jsonl").write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in keep), encoding="utf-8")
+    return len(rows) - len(keep)
+
+
 def read_ledger(root: Path) -> list[dict[str, Any]]:
     path = Path(root) / "ledger.jsonl"
     if not path.exists():

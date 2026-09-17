@@ -257,3 +257,12 @@ def test_pairwise_judging_is_blind_and_measures_position_bias():
     assert stats["outcomes"] == {"v3": 1, "position_dependent": 1} and stats["position_dependent_rate"] == 0.5 and stats["v3_win_rate_among_decided"] == 1.0
     assert scrub("见 [abc-1] 和 Agent V3") == "见 [#] 和 本系统"
     assert "Pairwise" in render(summarize([{"case_id": "p", "version": "v3", "category": "market", "set": "dev", "elapsed_s": 1, "tokens": {"input": 1, "output": 1}, "score": {"passed": True, "fixture_missing": 0, "judged": True, "problems": []}}]), None, stats)
+
+
+def test_drop_unjudged_removes_only_errored_ungraded_rows(tmp_path):
+    from v2.agent_bench.runner import drop_unjudged, read_ledger
+
+    rows = [{"case_id": "a", "score": {"judged": True}, "error": ""}, {"case_id": "b", "score": {"judged": False}, "error": "judge: LLMError"}, {"case_id": "c", "score": {"judged": False}, "error": ""}]
+    (tmp_path / "ledger.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    assert drop_unjudged(tmp_path) == 1
+    assert [r["case_id"] for r in read_ledger(tmp_path)] == ["a", "c"]

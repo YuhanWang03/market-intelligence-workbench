@@ -9,7 +9,7 @@ from pathlib import Path
 from v2.agent_bench import agents as agent_builders
 from v2.agent_bench.bank import Bank
 from v2.agent_bench.cases import CATEGORIES, all_cases, by_id, select
-from v2.agent_bench.runner import DEFAULT_WORKDIR, Run, read_ledger
+from v2.agent_bench.runner import DEFAULT_WORKDIR, Run, drop_unjudged, read_ledger
 
 
 def _cases(args) -> list:
@@ -48,6 +48,8 @@ def cmd_run(args) -> int:
             print("warning: judge model is the agents' model; set AGENT_BENCH_JUDGE_MODEL/BASE_URL/API_KEY to a different family for less self-preference", file=sys.stderr)
     run = Run(label=args.label, mode=args.mode, versions=tuple(args.versions), seconds=args.seconds, workdir=Path(args.workdir), bank=Bank(Path(args.bank)) if args.bank else Bank(),
               judge=judge, debate=args.debate, repeat=args.repeat, progress=lambda message: print(message, flush=True), seed_watchlist=tuple(args.seed_watchlist))
+    if args.retry_unjudged:
+        print(f"RETRY {drop_unjudged(run.root)} unjudged attempts with an error were removed from the ledger and will run again", flush=True)
     run.build()
     if judge_meta:
         conditions = json.loads((run.root / "conditions.json").read_text(encoding="utf-8"))
@@ -130,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seconds", type=float, default=180)
     p.add_argument("--debate", action="store_true", help="enable adversarial review in both agents")
     p.add_argument("--no-judge", action="store_true", help="deterministic checks only")
+    p.add_argument("--retry-unjudged", action="store_true", help="rerun attempts that errored before the judge could grade them (network drop)")
     p.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
     p.add_argument("--bank", help="frozen bank directory (default data/agent_bench/bank)")
     p.add_argument("--seed-watchlist", nargs="*", default=[], help="record/live: tickers written to a bench-owned watchlist store both agents read")
