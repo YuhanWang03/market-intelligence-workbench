@@ -66,7 +66,7 @@ def test_original_confirmation_uses_v3_resume_and_only_simulates_one_write():
     plan={'objective':'把 NVDA 加入关注列表','route':'command','budget':'direct','answer_mode':'tool_grounded',
           'requires_confirmation':True,'tasks':[{'id':'write','capability':'state.mutate',
           'arguments':{'operation':'watchlist.add','payload':{'ticker':'NVDA'}}}]}
-    first={**deepcopy(base),'text':'把 NVDA 加入关注列表','intent':{'kind':'command','command':{'operation':'watchlist.add','payload':{'ticker':'NVDA'}}},
+    first={**deepcopy(base),'text':'把 NVDA 加入关注列表','intent':{'kind':'command','command':{'operation':'watchlist.add','ticker':'NVDA'}},
            'tool_records':[],'result':{'status':'waiting_confirmation','request':{'entities':['NVDA']},'plan':plan}}
     second={**deepcopy(first),'text':'确认','result':{'status':'completed','request':{'entities':['NVDA']},'plan':plan},
             'tool_records':[{'task':plan['tasks'][0],'result':{'capability':'state.mutate','status':'completed',

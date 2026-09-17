@@ -102,6 +102,9 @@ def mutation_task(intent: Intent, entities: tuple[str, ...]) -> tuple[PlanTask |
         return None, "关注列表操作需要股票代码。"
     if operation == "watchlist.remove":
         return PlanTask("mutation", "state.mutate", {"operation": "watchlist.remove", "payload": {"ticker": ticker}}, purpose=f"将 {ticker} 移出关注列表"), ""
+    if operation != "watchlist.add":
+        # An unrecognised verb is never turned into a write the user did not ask for.
+        return None, "我只能修改关注列表（加入/移出）和价格提醒（设置/取消），请说明要做哪一种。"
     return PlanTask("mutation", "state.mutate", {"operation": "watchlist.add", "payload": {"ticker": ticker}}, purpose=f"将 {ticker} 加入关注列表"), ""
 
 

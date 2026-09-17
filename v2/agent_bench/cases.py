@@ -157,7 +157,7 @@ SEED_CASES: tuple[BenchCase, ...] = (
     case("s_ark_activity", "ark", "木头姐最近买了什么？",
          "指明了对应的 ARK 基金代码和持仓快照日期",
          "列出了相对上一份快照的新建仓、加仓或清仓，或明确说没有可比快照",
-         forbidden=("把持仓快照日期之后的交易当作已知事实",), must_cite=("ark",), tags=("etf",)),
+         forbidden=("声称知道最新一份持仓快照日期之后发生的具体买卖（提醒“此后可能已变化”不算）",), must_cite=("ark",), tags=("etf",)),
     case("s_ark_unsupported", "ark", "ARKQ 最近的持仓变化？",
          "说明该基金目前无法查询，并列出可以查询的 ARK 基金",
          forbidden=("给出 ARKQ 的持仓数字",), tags=("etf", "unknown_entity")),

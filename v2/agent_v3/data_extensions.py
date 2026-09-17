@@ -44,7 +44,7 @@ def register_data_extensions(registry, *, series_reader=None, fund_reader=None, 
     def macro(args, context, overview=False):
         from v2.macro.series import FRED_SERIES
         from pandas import DateOffset
-        ids = ["CPIAUCSL","UNRATE","DFEDTARU","DGS10","VIXCLS"] if overview else series_by_release[args["release_type"]]
+        ids = ["CPIAUCSL","UNRATE","DFEDTARU","DGS2","DGS10","VIXCLS"] if overview else series_by_release[args["release_type"]]
         evidence, missing = [], []
         for sid in ids:
             try:

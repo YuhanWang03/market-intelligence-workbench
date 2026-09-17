@@ -40,6 +40,17 @@ class PortfolioAudit(BaseModel):
     violations: list[PortfolioObjection] = Field(default_factory=list,max_length=5)
 
 
+class Command(BaseModel):
+    """One requested state change. The operation is an enum so an unknown verb fails validation instead of becoming another write."""
+
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["watchlist.add", "watchlist.remove", "alert.add", "alert.remove"]
+    ticker: str = ""
+    direction: Literal["above", "below"] | None = Field(default=None, description="提醒方向：涨到/突破为above，跌到/跌破为below")
+    price: float | None = Field(default=None, gt=0)
+    alert_id: int | None = Field(default=None, ge=1)
+
+
 class SemanticIntent(BaseModel):
     """Meaning of the request, never inferred with phrase matching."""
 
@@ -54,7 +65,7 @@ class SemanticIntent(BaseModel):
     portfolio_metric: Literal["", "unrealized_percent", "unrealized_amount", "daily_return"] = Field(default="", description="持仓排名口径：累计浮亏比例、累计浮亏金额或股票单日涨跌幅；没有指定时持仓跌最多默认浮亏比例")
     portfolio_followup: Literal["", "explain_position", "rerank"] = Field(default="", description="解释上一轮选出的持仓亏损为explain_position；改按今天或金额比较整个持仓为rerank。新股票或独立市场问题留空")
     watchlist_scope: bool = False
-    command: dict[str, Any] | None = None
+    command: Command | None = None
     release: Literal["", "cpi", "pce", "nfp", "gdp", "ppi", "claims", "fomc"] = ""
     data_target: Literal["auto", "etf_holdings"] = "auto"
     holdings_top: int = Field(default=5,ge=1,le=10,description="Requested number of leading fund holdings; full issuer file remains available separately")
