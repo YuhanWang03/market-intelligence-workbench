@@ -70,8 +70,8 @@ class Bank:
     def save(self, case_id: str, records: list[dict[str, Any]], *, merge: bool = True) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
         existing = self.load(case_id) if merge else []
-        seen = {canonical(row["capability"], row["arguments"]) for row in existing}
-        merged = [*existing, *(row for row in records if canonical(row["capability"], row["arguments"]) not in seen)]
+        seen = {(canonical(row["capability"], row["arguments"]), row.get("version") or "") for row in existing}
+        merged = [*existing, *(row for row in records if (canonical(row["capability"], row["arguments"]), row.get("version") or "") not in seen)]
         path = self.path(case_id)
         path.write_text(json.dumps({"case_id": case_id, "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "records": merged}, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
         return path
@@ -90,7 +90,8 @@ class Bank:
 class Replay:
     """Serves recorded envelopes for one case; the active case is switched between runs."""
 
-    def __init__(self) -> None:
+    def __init__(self, version: str = "") -> None:
+        self.version = version
         self.records: list[dict[str, Any]] = []
         self.fault: dict[str, Any] | None = None
         self.calls: list[dict[str, Any]] = []
@@ -98,8 +99,13 @@ class Replay:
         self.lock = threading.Lock()
 
     def use(self, records: list[dict[str, Any]], *, fault: dict[str, Any] | None = None, fixtures: tuple[dict[str, Any], ...] = ()) -> None:
+        # The agent's own recordings first: both agents may call one capability with the
+        # same arguments yet shape the envelope differently (V2's sub-agent summary lives
+        # in metadata); serving the other agent's envelope would change its behaviour.
+        own = [row for row in records if row.get("version") in (self.version, None, "")]
+        other = [row for row in records if row.get("version") not in (self.version, None, "")]
         with self.lock:
-            self.records = [*records, *fixtures]
+            self.records = [*own, *other, *fixtures]
             self.fault = fault
             self.calls = []
             self.used = {}
@@ -129,7 +135,8 @@ class Replay:
 class Recorder:
     """Wraps live handlers so every call for the active case is captured for the bank."""
 
-    def __init__(self) -> None:
+    def __init__(self, version: str = "") -> None:
+        self.version = version
         self.records: list[dict[str, Any]] = []
         self.fault: dict[str, Any] | None = None
         self.lock = threading.Lock()
@@ -146,6 +153,6 @@ class Recorder:
             result = handler(arguments, context)
             if isinstance(result, ToolEnvelope) and result.status not in {ResultStatus.FAILED, ResultStatus.SKIPPED}:
                 with self.lock:
-                    self.records.append({"capability": capability, "arguments": deepcopy(arguments), "result": envelope_to_dict(result)})
+                    self.records.append({"capability": capability, "arguments": deepcopy(arguments), "version": self.version, "result": envelope_to_dict(result)})
             return result
         return call

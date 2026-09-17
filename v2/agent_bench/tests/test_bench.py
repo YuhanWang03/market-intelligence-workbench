@@ -66,6 +66,21 @@ def test_bank_records_replays_and_reports_misses(tmp_path):
     assert bank.sha() and bank.sha() != Bank(tmp_path / "empty").sha()
 
 
+def test_replay_prefers_the_same_agents_recording(tmp_path):
+    bank = Bank(tmp_path / "bank")
+    v2_rec = Recorder("v2"); v2_rec.use()
+    v3_rec = Recorder("v3"); v3_rec.use()
+    v2_rec.wrap("market.explain_move", lambda a, c: ToolEnvelope("market.explain_move", ResultStatus.COMPLETED, subject="V2SHAPE"))({"ticker": "AAPL"}, None)
+    v3_rec.wrap("market.explain_move", lambda a, c: ToolEnvelope("market.explain_move", ResultStatus.COMPLETED, subject="V3SHAPE"))({"ticker": "AAPL"}, None)
+    bank.save("c", v3_rec.records); bank.save("c", v2_rec.records)
+    assert len(bank.load("c")) == 2, "same signature from two agents is two records"
+    for version, shape in (("v2", "V2SHAPE"), ("v3", "V3SHAPE")):
+        replay = Replay(version); replay.use(bank.load("c"))
+        assert replay.handler("market.explain_move")({"ticker": "AAPL"}, None).subject == shape
+    only_v3 = Replay("v2"); only_v3.use(v3_rec.records)
+    assert only_v3.handler("market.explain_move")({"ticker": "AAPL"}, None).subject == "V3SHAPE", "falls back to the other agent's recording"
+
+
 def test_fault_injection_and_synthetic_fixtures_take_precedence(tmp_path):
     replay = Replay()
     replay.use([], fault={"capability": "market.performance", "mode": "timeout"}, fixtures=({"capability": "web.research", "arguments": None, "result": {"capability": "web.research", "status": "completed", "subject": "AAPL", "evidence": [{"id": "w1", "entity": "AAPL", "claim": "injected", "source_id": "web:news"}], "limitations": [], "errors": [], "metrics": {}, "findings": [], "metadata": {}}},))

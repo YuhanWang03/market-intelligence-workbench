@@ -67,10 +67,10 @@ class Run:
         for version in self.versions:
             agent = agent_builders.build_agent(version, mode=self.mode, seconds=self.seconds, workdir=self.root / "agents" / version, debate=self.debate)
             if self.mode in {"frozen", "offline"}:
-                self.replay[version] = Replay()
+                self.replay[version] = Replay(version)
                 agent_builders.attach_replay(agent, version, self.replay[version])
             elif self.mode == "record":
-                self.recorder[version] = Recorder()
+                self.recorder[version] = Recorder(version)
                 agent_builders.attach_recorder(agent, version, self.recorder[version])
             self.agents[version] = agent
         conditions = {**settings, "label": self.label, "mode": self.mode, "versions": list(self.versions), "max_seconds": self.seconds, "repeat": self.repeat, "debate": self.debate,
@@ -120,7 +120,12 @@ class Run:
                     break
             if verdict is not None and not verdict_is_valid(verdict):
                 error = error or "judge: malformed verdict twice"
-        score = grade(case, version, result, verdict, fixture_missing=fixture_missing)
+        graded_case = case
+        if not self.debate and "debater" in (case.expectations.get(version) or {}).get("agents", []):
+            from dataclasses import replace as _replace
+            scoped = {**case.expectations, version: {**case.expectations[version], "agents": [a for a in case.expectations[version]["agents"] if a != "debater"]}}
+            graded_case = _replace(case, expectations=scoped)
+        score = grade(graded_case, version, result, verdict, fixture_missing=fixture_missing)
         if self.mode == "record":
             self.bank.save(case.id, self.recorder[version].records)
         row = self._row(case, version, attempt, result, score, elapsed, error)
