@@ -26,7 +26,7 @@ def test_case_set_is_consistent():
     assert all(c.set in {"dev", "holdout"} for c in cases)
     origins = Counter(c.origin for c in cases)
     assert origins["quality_v2"] >= 56 and origins["evaluation_v3"] == 17 and origins["seed"] >= 30
-    assert len({c.question for c in cases}) == len(cases), "no question appears twice"
+    assert len({(c.question, c.allow_web, c.preceding) for c in cases}) == len(cases), "the same question under the same conditions appears once"
     assert all(c.fault is None or c.fault["mode"] in {"error", "empty", "timeout"} for c in cases)
     assert all(c.frozen_only for c in cases if c.fault or c.fixtures), "injected conditions need the frozen bank"
     v2_only = [c for c in cases if c.expectations.get("v2")]
