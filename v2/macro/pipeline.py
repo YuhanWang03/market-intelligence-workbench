@@ -195,9 +195,11 @@ def _build_one_release(
         return None
 
     series_values: dict[str, list[float]] = {}
+    series_raw: dict[str, object] = {}
     for sid in series_ids:
         try:
             s = fetch_fred(sid)
+            series_raw[sid] = s
             series_values[sid] = tx._to_list(s)
         except Exception as exc:                       # noqa: BLE001
             warnings.append(f"FRED {sid}: {type(exc).__name__}")
@@ -225,7 +227,8 @@ def _build_one_release(
 
     # mom / yoy via the catalog-specified transform
     release.mom_pct = tx.mom_pct(primary)
-    release.yoy_pct = tx.yoy_pct(primary)
+    # Dated series: a missing month (October 2025 CPI) must not shift the year-ago base.
+    release.yoy_pct = tx.yoy_pct(series_raw.get(primary_id, primary))
 
     # ---- LLM template-fill (Layer 1+2) ----
     try:

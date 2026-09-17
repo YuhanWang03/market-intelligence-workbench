@@ -48,8 +48,35 @@ def mom_pct(series) -> float | None:
     return latest / prior - 1.0
 
 
+def _year_ago_by_date(series) -> tuple | None:
+    """(latest, observation dated one year earlier) for a date-indexed series, else None.
+
+    Counting 12 rows back is wrong once a month is missing: FRED has no
+    October 2025 CPI, so row -13 is thirteen months ago and the "YoY" is
+    overstated (3.71% instead of 3.35% for August 2026).
+    """
+    try:
+        clean = series.dropna()
+        index = clean.index
+        latest_at = index[-1]
+        target = latest_at.replace(year=latest_at.year - 1)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+    if target not in index:
+        return ()  # dated series, but the year-ago observation does not exist
+    return float(clean.iloc[-1]), float(clean.loc[target])
+
+
 def yoy_pct(series) -> float | None:
-    """Latest / value 12 periods ago - 1. None if window too short."""
+    """Latest / the observation one year earlier - 1. None when that observation is missing.
+
+    A date-indexed series is matched by date; a plain list falls back to 12 periods ago.
+    """
+    dated = _year_ago_by_date(series)
+    if dated is not None:
+        if not dated or dated[1] == 0:
+            return None
+        return dated[0] / dated[1] - 1.0
     vals = _to_list(series)
     if len(vals) < 13:
         return None
