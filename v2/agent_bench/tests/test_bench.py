@@ -169,6 +169,27 @@ def test_rerunning_a_label_resumes_where_it_stopped(tmp_path):
     assert len(more) == 2 and {r["attempt"] for r in more} == {3} and len(read_ledger(resumed.root)) == 6
 
 
+def test_length_limit_counts_visible_characters_not_citation_ids():
+    from v2.agent_bench.judge import visible_length
+    case = BenchCase("t", "preference", "q", ("x",), max_chars=50)
+    verdict = {"criteria": [{"index": 0, "met": True}], "forbidden": []}
+    answer = "简短回答。" * 5 + " [evidence-research-metrics-a2f1c9f280a2669b][evidence-cca48823d92ff376]"
+    assert len(answer) > 50 and visible_length(answer) <= 50
+    assert grade(case, "v2", _result(answer), verdict).length_ok
+
+
+def test_seeded_watchlist_lives_in_a_bench_owned_store(tmp_path):
+    from v2.agent_bench.agents import seed_watchlist
+    from v2.bot import state
+    original = state._DB_PATH
+    try:
+        path = seed_watchlist(tmp_path, ("nvda", "AMD"))
+        assert path == tmp_path / "bot_state.db" and path.exists()
+        assert [row["ticker"] for row in state.watchlist_list()] == ["NVDA", "AMD"]
+    finally:
+        state._DB_PATH = original
+
+
 def test_grade_confirmation_cases_require_the_waiting_status_and_no_write():
     case = BenchCase("t", "command", "加入关注", ("要求确认",), expect_status=("waiting_confirmation",), forbid_capabilities=("state.mutate",))
     verdict = {"criteria": [{"index": 0, "met": True}], "forbidden": []}

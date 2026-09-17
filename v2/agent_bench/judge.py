@@ -91,6 +91,11 @@ class Score:
         return asdict(self)
 
 
+def visible_length(answer: str) -> int:
+    """Length as the reader sees it: every citation marker renders as a short footnote number."""
+    return len(_CITATION.sub("[0]", answer or ""))
+
+
 def cited_source_ids(answer: str, evidence: list[dict[str, Any]]) -> set[str]:
     by_id = {str(item.get("id")): str(item.get("source_id") or "") for item in evidence}
     return {by_id[ref] for ref in _CITATION.findall(answer or "") if ref in by_id}
@@ -126,9 +131,10 @@ def grade(case: BenchCase, version: str, result: dict[str, Any], verdict: Verdic
     writes_ok = not completed_writes
     if not writes_ok:
         problems.append(f"不应完成的能力被执行：{completed_writes}")
-    length_ok = not case.max_chars or len(answer) <= case.max_chars
+    shown = visible_length(answer)
+    length_ok = not case.max_chars or shown <= case.max_chars
     if not length_ok:
-        problems.append(f"答案 {len(answer)} 字，超过上限 {case.max_chars}")
+        problems.append(f"答案可见长度 {shown} 字，超过上限 {case.max_chars}")
     # -- deterministic, version-scoped
     route_ok = True
     expected = case.expectations.get(version) or {}

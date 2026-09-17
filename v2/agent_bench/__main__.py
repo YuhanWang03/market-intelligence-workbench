@@ -47,7 +47,7 @@ def cmd_run(args) -> int:
         if judge_meta.get("judge_same_as_agent") == "true":
             print("warning: judge model is the agents' model; set AGENT_BENCH_JUDGE_MODEL/BASE_URL/API_KEY to a different family for less self-preference", file=sys.stderr)
     run = Run(label=args.label, mode=args.mode, versions=tuple(args.versions), seconds=args.seconds, workdir=Path(args.workdir), bank=Bank(Path(args.bank)) if args.bank else Bank(),
-              judge=judge, debate=args.debate, repeat=args.repeat, progress=lambda message: print(message, flush=True))
+              judge=judge, debate=args.debate, repeat=args.repeat, progress=lambda message: print(message, flush=True), seed_watchlist=tuple(args.seed_watchlist))
     run.build()
     if judge_meta:
         conditions = json.loads((run.root / "conditions.json").read_text(encoding="utf-8"))
@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-judge", action="store_true", help="deterministic checks only")
     p.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
     p.add_argument("--bank", help="frozen bank directory (default data/agent_bench/bank)")
+    p.add_argument("--seed-watchlist", nargs="*", default=[], help="record/live: tickers written to a bench-owned watchlist store both agents read")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("pair", help="blind pairwise judging over an existing ledger")

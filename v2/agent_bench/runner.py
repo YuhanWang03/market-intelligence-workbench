@@ -47,10 +47,11 @@ def _tokens(result: dict[str, Any]) -> dict[str, int]:
 
 class Run:
     def __init__(self, *, label: str, mode: str, versions: tuple[str, ...], seconds: float = 180, workdir: Path | None = None, bank: Bank | None = None,
-                 judge: RubricJudgeFn | None = None, debate: bool = False, repeat: int = 1, progress: Callable[[str], None] | None = None) -> None:
+                 judge: RubricJudgeFn | None = None, debate: bool = False, repeat: int = 1, progress: Callable[[str], None] | None = None, seed_watchlist: tuple[str, ...] = ()) -> None:
         if mode not in agent_builders.MODES:
             raise ValueError(f"unknown mode: {mode}")
         self.label, self.mode, self.versions, self.seconds, self.repeat, self.debate = label, mode, tuple(versions), seconds, max(1, repeat), debate
+        self.seed_watchlist = tuple(seed_watchlist)
         self.root = Path(workdir or DEFAULT_WORKDIR) / label
         self.bank = bank or Bank()
         self.judge = judge
@@ -64,6 +65,8 @@ class Run:
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "results").mkdir(exist_ok=True)
         settings = agent_builders.configure_model() if self.mode != "offline" else {"model": "(offline)", "base_url": "", "thinking": "", "temperature": 0}
+        if self.seed_watchlist and self.mode in {"live", "record"}:
+            agent_builders.seed_watchlist(self.root / "agents", self.seed_watchlist)
         for version in self.versions:
             agent = agent_builders.build_agent(version, mode=self.mode, seconds=self.seconds, workdir=self.root / "agents" / version, debate=self.debate)
             if self.mode in {"frozen", "offline"}:
@@ -74,7 +77,7 @@ class Run:
                 agent_builders.attach_recorder(agent, version, self.recorder[version])
             self.agents[version] = agent
         conditions = {**settings, "label": self.label, "mode": self.mode, "versions": list(self.versions), "max_seconds": self.seconds, "repeat": self.repeat, "debate": self.debate,
-                      "web": True, "bank_sha": self.bank.sha() if self.mode in {"frozen", "offline"} else None, "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                      "web": True, "bank_sha": self.bank.sha() if self.mode in {"frozen", "offline"} else None, "seed_watchlist": list(self.seed_watchlist), "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                       "limitations": ["Same model, budget and web allowance for both agents; native planners, synthesizers and tool adapters differ by design.",
                                       "frozen: tool responses come from the bank; a call the bank lacks is answered as fixture_missing, never from a provider.",
                                       "live/record: data changes between the two agents' runs; alternate the version order across repeats."]}

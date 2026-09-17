@@ -58,6 +58,22 @@ def _drop_lab(agent: Any, version: str) -> None:
             del handlers[name]
 
 
+def seed_watchlist(workdir: Path, tickers: tuple[str, ...]) -> Path:
+    """Point the bot's state store at a bench-owned database holding a fixed watchlist.
+
+    The owner's real watchlist lives on the VPS; a local record run would
+    otherwise plan the right tools over an empty list. Both agents read the
+    same store, so seeding it changes their inputs identically.
+    """
+    from v2.bot import state
+
+    path = Path(workdir) / "bot_state.db"
+    state._DB_PATH = path
+    for ticker in tickers:
+        state.watchlist_add(ticker.upper())
+    return path
+
+
 def build_agent(version: str, *, mode: str, seconds: float, workdir: Path, debate: bool = False) -> Any:
     if version not in {"v2", "v3"} or mode not in MODES:
         raise ValueError(f"unknown version/mode: {version}/{mode}")
