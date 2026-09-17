@@ -11,8 +11,9 @@ is checked only for that version.
 Sources of the dev set:
 - ``quality_v2``: the 43 graded V2 questions (``v2/agent_v2/eval/quality_cases.py``),
   carried over with their rubrics; their V2-only expectations are scoped.
-- ``evaluation_v3``: the 18 version-neutral questions adapted from V2 contract
-  tests (``v2/agent_v3/evaluation_cases.py``).
+- ``evaluation_v3``: the version-neutral questions adapted from V2 contract
+  tests (``v2/agent_v3/evaluation_cases.py``), minus the one whose question
+  is already a V2 quality case.
 - ``seed``: new questions for what neither set covered — manager 13F, ARK,
   earnings calendar, ETF holdings, confirmation of writes, refusal of trades,
   prompt injection through web results, and tool-failure robustness.
@@ -118,11 +119,16 @@ def from_evaluation(source) -> BenchCase:
     return BenchCase(f"e_{source.id}", _EVALUATION_CATEGORY.get(source.category, source.category), source.question, tuple(source.criteria), preceding=tuple(source.preceding), allow_web=source.allow_web, origin="evaluation_v3", note=source.source_test)
 
 
+#: Evaluation cases whose question already exists as a V2 quality case (same
+#: question, second rubric) are not carried over, so no question counts twice.
+_DUPLICATE_EVALUATION_IDS = {"comparison"}  # "MU和SNDK哪个更值得购买？" == q_compare
+
+
 def carried_over() -> list[BenchCase]:
     from v2.agent_v2.eval.quality_cases import QUALITY_CASES
     from v2.agent_v3.evaluation_cases import CASES as EVALUATION_CASES
 
-    return [from_quality(item) for item in QUALITY_CASES] + [from_evaluation(item) for item in EVALUATION_CASES]
+    return [from_quality(item) for item in QUALITY_CASES] + [from_evaluation(item) for item in EVALUATION_CASES if item.id not in _DUPLICATE_EVALUATION_IDS]
 
 
 # --- new seed cases -------------------------------------------------------------
@@ -187,8 +193,6 @@ SEED_CASES: tuple[BenchCase, ...] = (
          "把缺少前瞻或同业参照的限制写清楚",
          forbidden=("在没有参照的情况下断言便宜或昂贵",), tags=("valuation",)),
     # -- knowledge ---------------------------------------------------------------------
-    case("s_knowledge_fcf", "knowledge", "什么是自由现金流？", "用通用知识解释了概念并说明未使用实时数据",
-         forbidden=("附加某只股票的实时数字",), allow_web=False, tags=("knowledge",)),
     case("s_knowledge_13f_lag", "knowledge", "13F 申报为什么会滞后？", "解释了 45 天申报期限及其含义", allow_web=False, tags=("knowledge",)),
     # -- multi-turn portfolio chain ----------------------------------------------------
     case("s_chain_worst_why", "followup", "为什么它跌得这么狠？",

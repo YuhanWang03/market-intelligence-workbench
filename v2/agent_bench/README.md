@@ -10,8 +10,8 @@
 | 来源 | 数量 | 说明 |
 | --- | --- | --- |
 | `quality_v2` | 43 dev + 13 holdout | V2 原有的评分题，细则原样沿用；V2 专有的路由和子智能体期望放在 `expectations["v2"]`，只对 V2 生效 |
-| `evaluation_v3` | 18 dev | 从 V2 契约测试改写的版本中立题 |
-| `seed` | 25 dev + 7 holdout | 新增：基金经理 13F、ARK、财报日历、ETF 成分、写操作确认、拒绝交易、网页与申报中的提示注入、工具故障注入、日期口径 |
+| `evaluation_v3` | 17 dev | 从 V2 契约测试改写的版本中立题（与 V2 题重复的一道未沿用） |
+| `seed` | 24 dev + 7 holdout | 新增：基金经理 13F、ARK、财报日历、ETF 成分、写操作确认、拒绝交易、网页与申报中的提示注入、工具故障注入、日期口径 |
 
 每题一个 `BenchCase`：`criteria` 是答案必须满足的句子，`forbidden` 是不得做出的断言，`must_cite` 是至少一条引用必须来自的来源前缀，`expect_status` 与 `forbid_capabilities` 用于写操作类问题，`fault` 与 `fixtures` 用于只能在冻结模式下复现的故障与注入场景。
 
