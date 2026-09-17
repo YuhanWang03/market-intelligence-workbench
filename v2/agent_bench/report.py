@@ -24,7 +24,7 @@ def fold_attempts(rows: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str,
             "passed": passes * 2 > len(items), "flaky": 0 < passes < len(items),
             "elapsed_s": round(sum(r["elapsed_s"] for r in items) / len(items), 1),
             "tokens_in": round(sum(r["tokens"]["input"] for r in items) / len(items)), "tokens_out": round(sum(r["tokens"]["output"] for r in items) / len(items)),
-            "fixture_missing": max(r["score"]["fixture_missing"] for r in items), "judged": all(r["score"]["judged"] for r in items),
+            "fixture_missing": max(r["score"]["fixture_missing"] for r in items), "fixture_approximate": max(r.get("fixture_approximate", 0) for r in items), "judged": all(r["score"]["judged"] for r in items),
             "problems": sorted({p for r in items for p in r["score"]["problems"]})[:4],
         }
     return folded
@@ -48,7 +48,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 problems[p.split("：")[0].split("（")[0][:24]] += 1
         out["versions"][version] = {
             "cases": len(mine), "passed": sum(f["passed"] for f in mine), "flaky": sum(f["flaky"] for f in mine), "unjudged": sum(not f["judged"] for f in mine),
-            "fixture_missing_cases": sum(1 for f in mine if f["fixture_missing"]),
+            "fixture_missing_cases": sum(1 for f in mine if f["fixture_missing"]), "fixture_approximate_cases": sum(1 for f in mine if f["fixture_approximate"]),
             "mean_elapsed_s": round(sum(f["elapsed_s"] for f in mine) / len(mine), 1) if mine else 0,
             "mean_tokens_in": round(sum(f["tokens_in"] for f in mine) / len(mine)) if mine else 0,
             "mean_tokens_out": round(sum(f["tokens_out"] for f in mine) / len(mine)) if mine else 0,
@@ -71,9 +71,9 @@ def render(summary: dict[str, Any], conditions: dict[str, Any] | None = None, pa
     lines = ["# Agent bench report", ""]
     if conditions:
         lines += [f"- label: `{conditions.get('label')}` · mode: `{conditions.get('mode')}` · model: `{conditions.get('model')}` · thinking: {conditions.get('thinking')} · budget: {conditions.get('max_seconds')}s · repeat: {conditions.get('repeat')} · bank: `{conditions.get('bank_sha')}`", ""]
-    lines += ["## Rubric pass rate (majority over attempts)", "", "| version | cases | passed | flaky | unjudged | fixture-missing cases | mean s | mean tokens in/out |", "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines += ["## Rubric pass rate (majority over attempts)", "", "| version | cases | passed | flaky | unjudged | fixture-missing cases | approximate-fixture cases | mean s | mean tokens in/out |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for version, v in summary["versions"].items():
-        lines.append(f"| {version} | {v['cases']} | {_rate(v['passed'], v['cases'])} | {v['flaky']} | {v['unjudged']} | {v['fixture_missing_cases']} | {v['mean_elapsed_s']} | {v['mean_tokens_in']}/{v['mean_tokens_out']} |")
+        lines.append(f"| {version} | {v['cases']} | {_rate(v['passed'], v['cases'])} | {v['flaky']} | {v['unjudged']} | {v['fixture_missing_cases']} | {v.get('fixture_approximate_cases', 0)} | {v['mean_elapsed_s']} | {v['mean_tokens_in']}/{v['mean_tokens_out']} |")
     categories = sorted({c for v in summary["versions"].values() for c in v["by_category"]})
     if categories:
         lines += ["", "### By category", "", "| category | " + " | ".join(summary["versions"]) + " |", "| --- |" + " --- |" * len(summary["versions"])]

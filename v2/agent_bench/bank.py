@@ -70,8 +70,11 @@ class Bank:
     def save(self, case_id: str, records: list[dict[str, Any]], *, merge: bool = True) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
         existing = self.load(case_id) if merge else []
-        seen = {(canonical(row["capability"], row["arguments"]), row.get("version") or "") for row in existing}
-        merged = [*existing, *(row for row in records if (canonical(row["capability"], row["arguments"]), row.get("version") or "") not in seen)]
+        # Newer recordings win: a failed provider call recorded on a bad day must
+        # not shadow the successful one recorded later for the same signature.
+        incoming = {(canonical(row["capability"], row["arguments"]), row.get("version") or "") for row in records}
+        kept = [row for row in existing if (canonical(row["capability"], row["arguments"]), row.get("version") or "") not in incoming]
+        merged = [*kept, *records]
         path = self.path(case_id)
         path.write_text(json.dumps({"case_id": case_id, "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "records": merged}, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
         return path
@@ -85,6 +88,21 @@ class Bank:
             digest.update(path.name.encode("utf-8"))
             digest.update(path.read_bytes())
         return digest.hexdigest()[:16]
+
+
+_ENTITY_KEYS = ("ticker", "tickers", "symbol", "manager", "release_type", "section", "operation")
+
+
+def _entity_key(arguments: dict[str, Any]) -> str:
+    return json.dumps({k: arguments.get(k) for k in _ENTITY_KEYS if k in arguments}, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _same_entity(recorded: dict[str, Any], asked: dict[str, Any]) -> bool:
+    """Both calls name the same thing (ticker, manager, release…) even if optional arguments differ."""
+    keys = [k for k in _ENTITY_KEYS if k in recorded or k in asked]
+    if not keys:
+        return True  # a capability without an entity argument (macro.overview, account.*) is one call per question
+    return all(recorded.get(k) == asked.get(k) for k in keys)
 
 
 class Replay:
@@ -102,16 +120,20 @@ class Replay:
         # The agent's own recordings first: both agents may call one capability with the
         # same arguments yet shape the envelope differently (V2's sub-agent summary lives
         # in metadata); serving the other agent's envelope would change its behaviour.
-        own = [row for row in records if row.get("version") in (self.version, None, "")]
-        other = [row for row in records if row.get("version") not in (self.version, None, "")]
+        exact = [row for row in records if row.get("version") == self.version]
+        unversioned = [row for row in records if not row.get("version")]
+        other = [row for row in records if row.get("version") and row.get("version") != self.version]
         with self.lock:
-            self.records = [*own, *other, *fixtures]
+            self.records = [*exact, *unversioned, *other, *fixtures]
             self.fault = fault
             self.calls = []
             self.used = {}
 
     def missing(self) -> list[dict[str, Any]]:
         return [row for row in self.calls if not row["fixture_match"]]
+
+    def approximate(self) -> list[dict[str, Any]]:
+        return [row for row in self.calls if row.get("approximate")]
 
     def handler(self, capability: str) -> Callable[[dict[str, Any], Any], ToolEnvelope]:
         def call(arguments: dict[str, Any], context: Any) -> ToolEnvelope:
@@ -122,13 +144,25 @@ class Replay:
             signature = canonical(capability, arguments)
             with self.lock:
                 rows = [row for row in self.records if row["capability"] == capability and (row.get("arguments") is None or canonical(capability, row["arguments"]) == signature)]
-                index = self.used.get(signature, 0)
-                self.used[signature] = index + 1
+                approximate = False
+                if not rows:
+                    # Same question, same capability, same entity, different optional
+                    # arguments (a planner asked for top=8 instead of top=5, or phrased a
+                    # search query differently): serve the recorded call for that entity
+                    # and mark the match approximate rather than fail the whole answer.
+                    rows = [row for row in self.records if row["capability"] == capability and row.get("arguments") is not None and _same_entity(row["arguments"], arguments)]
+                    approximate = bool(rows)
+                key = signature if not approximate else f"~{capability}:{_entity_key(arguments)}"
+                index = self.used.get(key, 0)
+                self.used[key] = index + 1
                 found = index < len(rows)
-                self.calls.append({"capability": capability, "arguments": deepcopy(arguments), "fixture_match": found})
+                self.calls.append({"capability": capability, "arguments": deepcopy(arguments), "fixture_match": found, "approximate": found and approximate})
             if not found:
                 return ToolEnvelope(capability, ResultStatus.PARTIAL_DATA, limitations=["冻结评测数据中没有录制这个工具参数；未访问真实数据源。"], metadata={"fixture_missing": True})
-            return replace(envelope_from_dict(rows[index]["result"]), elapsed_ms=0)
+            served = replace(envelope_from_dict(rows[index]["result"]), elapsed_ms=0)
+            if approximate:
+                served.metadata = {**served.metadata, "fixture_approximate": True}
+            return served
         return call
 
 

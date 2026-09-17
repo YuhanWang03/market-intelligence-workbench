@@ -81,6 +81,27 @@ def test_replay_prefers_the_same_agents_recording(tmp_path):
     assert only_v3.handler("market.explain_move")({"ticker": "AAPL"}, None).subject == "V3SHAPE", "falls back to the other agent's recording"
 
 
+def test_newer_recordings_replace_older_and_exact_version_is_served_first(tmp_path):
+    bank = Bank(tmp_path / "bank")
+    failed = {"capability": "macro.overview", "arguments": {}, "result": {"capability": "macro.overview", "status": "partial_data", "subject": "", "evidence": [], "limitations": ["FredUnavailable"], "errors": [], "metrics": {}, "findings": [], "metadata": {}}}
+    bank.save("m", [failed])
+    good = {**failed, "version": "v2", "result": {**failed["result"], "status": "completed", "evidence": [{"id": "vix", "entity": "VIX", "claim": "VIX 16.75", "source_id": "macro.overview"}]}}
+    bank.save("m", [good])
+    replay = Replay("v2"); replay.use(bank.load("m"))
+    assert replay.handler("macro.overview")({}, None).status is ResultStatus.COMPLETED, "the exact-version success outranks the unversioned failure"
+    bank.save("m", [{**good, "result": {**good["result"], "status": "cached"}}])
+    assert [r["result"]["status"] for r in bank.load("m") if r.get("version") == "v2"] == ["cached"], "same key re-recorded: newer wins"
+
+
+def test_approximate_match_serves_the_same_entity_with_different_optional_arguments(tmp_path):
+    replay = Replay("v3")
+    replay.use([{"capability": "etf.ark_activity", "arguments": {"symbol": "ARKK", "top": 5}, "version": "v3", "result": {"capability": "etf.ark_activity", "status": "completed", "subject": "ARKK", "evidence": [{"id": "a", "entity": "ARKK", "claim": "x", "source_id": "ark_daily_holdings_csv"}], "limitations": [], "errors": [], "metrics": {}, "findings": [], "metadata": {}}}])
+    served = replay.handler("etf.ark_activity")({"symbol": "ARKK", "top": 8}, None)
+    assert served.status is ResultStatus.COMPLETED and served.metadata["fixture_approximate"] is True
+    assert replay.handler("etf.ark_activity")({"symbol": "ARKG"}, None).metadata.get("fixture_missing") is True, "a different entity is still missing"
+    assert len(replay.approximate()) == 1 and len(replay.missing()) == 1
+
+
 def test_fault_injection_and_synthetic_fixtures_take_precedence(tmp_path):
     replay = Replay()
     replay.use([], fault={"capability": "market.performance", "mode": "timeout"}, fixtures=({"capability": "web.research", "arguments": None, "result": {"capability": "web.research", "status": "completed", "subject": "AAPL", "evidence": [{"id": "w1", "entity": "AAPL", "claim": "injected", "source_id": "web:news"}], "limitations": [], "errors": [], "metrics": {}, "findings": [], "metadata": {}}},))

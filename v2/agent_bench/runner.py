@@ -107,6 +107,7 @@ class Run:
             result = {"status": "failed", "answer": "", "error": error, "route": {"kind": ""}, "results": [], "evidence": [], "verification": {"ok": False, "warnings": []}, "traceback": traceback.format_exc()[-2000:]}
         elapsed = time.monotonic() - started
         fixture_missing = len(self.replay[version].missing()) if version in self.replay else 0
+        fixture_approximate = len(self.replay[version].approximate()) if version in self.replay else 0
         verdict = None
         if self.judge is not None and result.get("answer"):
             for _ in range(2):  # one retry for a malformed verdict, as V2's grader does
@@ -129,6 +130,7 @@ class Run:
         if self.mode == "record":
             self.bank.save(case.id, self.recorder[version].records)
         row = self._row(case, version, attempt, result, score, elapsed, error)
+        row["fixture_approximate"] = fixture_approximate
         self._write(row, result)
         return row
 
@@ -175,7 +177,7 @@ class Run:
                     verdict = "PASS" if score["passed"] else ("RECORDED" if self.mode == "record" and self.judge is None else ("UNJUDGED" if not score["judged"] else "FAIL"))
                     problems = [p for p in score["problems"] if p != "未经裁判评分"]
                     self.progress(f"END   [{done}/{total}] {case.id} {version} #{attempt} {verdict} {row['status']} {row['elapsed_s']}s"
-                                  + (f" missing={score['fixture_missing']}" if score["fixture_missing"] else "") + (f" :: {'; '.join(problems[:2])}" if problems else ""))
+                                  + (f" missing={score['fixture_missing']}" if score["fixture_missing"] else "") + (f" approx={row['fixture_approximate']}" if row.get("fixture_approximate") else "") + (f" :: {'; '.join(problems[:2])}" if problems else ""))
         return rows
 
 
