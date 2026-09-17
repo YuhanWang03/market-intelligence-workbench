@@ -165,6 +165,8 @@ class GraphState(TypedDict, total=False):
     run_id: str
     session_id: str
     text: str
+    #: The user's own words this turn, before a pending clarification is merged into ``text``.
+    turn_text: str
     allow_web: bool
     history: dict
     page_context: dict

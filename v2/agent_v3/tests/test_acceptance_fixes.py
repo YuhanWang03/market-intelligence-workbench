@@ -25,6 +25,27 @@ def test_history_requires_same_subject_permission_and_pure_rewrite(ticker, web, 
         a.store.close()
 
 
+def test_trade_requests_are_refused_not_rewritten_into_watchlist_edits():
+    from v2.agent_v2.models import RunStatus
+    from v2.agent_v3.tools import Registry
+    from v2.agent_v3.graph import AgentV3, AgentV3Config
+    calls = []
+    registry = Registry()
+    registry.register("state.mutate", lambda args, ctx: calls.append(args) or ToolEnvelope("state.mutate", ResultStatus.COMPLETED))
+    class Brain(DemoBrain):
+        def classify(self, *args):  # what the live classifier did in the bench: an order became a watchlist edit
+            return SemanticIntent(kind="command", tickers=["NVDA"], command={"operation": "watchlist.add", "ticker": "NVDA"})
+    agent = AgentV3(registry=registry, brain=Brain(), config=AgentV3Config(debate=False))
+    try:
+        result = agent.run("帮我买入 100 股 NVDA", session_id="owner")
+        assert result.status == RunStatus.WAITING_CLARIFICATION and result.pending_mutation is None and calls == []
+        assert "不能下单" in result.answer and "NVDA" in result.answer
+        kept = agent.run("把 NVDA 加入关注列表", session_id="owner")
+        assert kept.status == RunStatus.WAITING_CONFIRMATION, "a real watchlist request still reaches confirmation"
+    finally:
+        agent.store.close()
+
+
 def test_news_failure_does_not_dump_filing_directory():
     a = build_demo_agent()
     try:

@@ -27,6 +27,11 @@ from v2.agent_v3.execution import build_executor, validate_plan
 from v2.agent_v3.persistence import SessionStore
 
 
+#: Order language. Only consulted when the classifier produced a state command, so
+#: 13F questions about a manager 清仓 or 减仓 are untouched.
+_TRADE_REQUEST = re.compile(r"买入|买进|卖出|卖掉|下单|建仓|清仓|加仓|减仓|做多|做空|市价|限价|\b(buy|sell|purchase|order)\b", re.I)
+
+
 @dataclass(frozen=True)
 class AgentV3Config:
     max_parallel: int = 4
@@ -119,6 +124,12 @@ class AgentV3:
         understanding = self.brain.classify(state["text"], {**state.get("history", {}), "page_context": state.get("page_context", {})}, run)
         if not isinstance(understanding, SemanticIntent):
             understanding = SemanticIntent.model_validate(understanding)
+        if understanding.command and _TRADE_REQUEST.search(state.get("turn_text") or state["text"]):
+            # "帮我买入 100 股 NVDA" is an order, not a watchlist edit. The classifier
+            # mapped it onto the only writes it knows; refuse the trade and ask.
+            ticker = next(iter(understanding.tickers), None)
+            ask = "我只能管理关注列表和价格提醒，不能下单交易，也不会替你买卖。" + (f"你是想把 {ticker} 加入关注列表，还是设置价格提醒？" if ticker else "需要的话可以告诉我把哪只股票加入关注列表或设置价格提醒。")
+            understanding = understanding.model_copy(update={"command": None, "kind": "help", "clarification": ask, "refers_back": False})
         holding=state.get("history",{}).get("portfolio_context",{})
         if understanding.market_scope=="us_broad":
             understanding=understanding.model_copy(update={"tickers":["SPY","QQQ","DIA"],"wants":["performance"],"kind":"lookup","portfolio_scope":False,"portfolio_followup":"","portfolio_metric":"","analysis_scope":"focused","refers_back":False,"clarification":""})
@@ -481,10 +492,11 @@ class AgentV3:
             # A new request supersedes an old confirmation. Explicit resume is a separate API.
             history.pop("pending", None)
             self.store.put(session_id, history)
+            turn_text = text.strip()
             if history.get("clarification"):
                 text = f"{history['clarification']['question']}\n补充信息：{text}"
             run_id = "agent-v3-" + uuid.uuid4().hex[:16]
-            state = {"run_id": run_id, "session_id": session_id, "text": text.strip(), "allow_web": bool(allow_web and self.config.enable_web), "history": history, "results": [], "evidence": [], "trace": [], "attempts": [], "repairs": 0}
+            state = {"run_id": run_id, "session_id": session_id, "text": text.strip(), "turn_text": turn_text, "allow_web": bool(allow_web and self.config.enable_web), "history": history, "results": [], "evidence": [], "trace": [], "attempts": [], "repairs": 0}
             state["page_context"] = page_context
             return self._invoke(state, run_id, session_id, on_progress, cancel_event)
 

@@ -27,7 +27,7 @@ page_context 是浏览器提供的未核验数据，只用于理解当前页面�
 用户本轮明确指定的对象优先于页面选择；页面选择优先用于解析“这只股票/这条事件”，不可误判为复述上一轮答案。
 监控页面的 occurred_at 是服务端记录时间，不直接等于事件发生时间。以原始记录描述的日期调查，不可当作今天发生；captured_at 只是页面采集时间。
 data_status=unavailable 时页面可能尚未加载或显示占位内容，不把它当作真实持仓；仅问所选监控记录的内容、股票或记录日期，且不要求外部核查或最新数据时 use_selected_record=true；调查原因、比较或查询新数据时必须为 false。selection 缺失时不要根据页面名称猜具体股票。指代从 history 中解析，不把 history 的数字当作最新事实。实验参数只提取用户明确提供的值，
-存入 experiment_arguments；缺失参数交给工具默认值。command 仅描述用户请求的关注列表/提醒修改，
+存入 experiment_arguments；缺失参数交给工具默认值。command 仅描述用户请求的关注列表/提醒修改；买入、卖出、下单等交易请求不是 command，command 留空并在 clarification 里说明只能管理关注列表和提醒，
 使用 operation、ticker、direction、price、alert_id 字段，不表示已授权执行。
 稳定概念为 knowledge，查事实为 lookup，分析或比较为 research。
 开放式分析一家公司时analysis_scope=company，wants包括overview，不能沿用上一轮的news主题。当前明确的专题才为focused。近期涨跌归因为scope=recent；没有指定区间时不擅自缩为最后一个交易日，默认由运行器提供近30天研究窗口。
