@@ -95,12 +95,35 @@ def live_filings(cik: str, name: str, n_filings: int = 2) -> list[tuple[dict, li
     return rows
 
 
+def filing_is_complete(filing: dict, positions: list[dict]) -> bool:
+    """Every position the filing declares is stored, and their value adds up to the declared total.
+
+    A tracker database written before same-CUSIP rows were aggregated kept
+    29 of Berkshire's 90 positions (no AAPL, no AXP), so the "largest
+    holding" read from it was OXY.
+    """
+    declared = int(filing.get("n_positions") or 0)
+    if declared and len(positions) < declared:
+        return False
+    total = float(filing.get("portfolio_value") or 0)
+    stored = sum(float(p.get("market_value") or 0) for p in positions)
+    return not total or abs(stored - total) <= 0.05 * total
+
+
 def default_reader(cik: str, name: str, n_filings: int = 2) -> tuple[list[tuple[dict, list[dict]]], str]:
-    """Tracked filings when the scheduler has them, else EDGAR; returns (filings, provenance)."""
+    """Tracked filings when the scheduler has them complete, else EDGAR; returns (filings, provenance)."""
     tracked = tracked_filings(cik, n_filings)
-    if tracked:
+    if tracked and all(filing_is_complete(filing, positions) for filing, positions in tracked):
         return tracked, "tracked"
-    return live_filings(cik, name, n_filings), "edgar"
+    try:
+        live = live_filings(cik, name, n_filings)
+    except Exception:  # noqa: BLE001 — EDGAR unreachable: the incomplete store is still better than nothing, flagged
+        live = []
+    if live:
+        return live, "edgar"
+    if tracked:
+        return tracked, "tracked_incomplete"
+    return [], "edgar"
 
 
 def _edgar_url(cik: str) -> str:
@@ -147,6 +170,10 @@ def portfolio_envelope(cik: str, name: str, filings: list[tuple[dict, list[dict]
     if provenance == "tracked":
         limitations.append("数据来自本地 13F 跟踪库；若 EDGAR 已有更新申报而跟踪任务尚未运行，此处可能滞后。")
     status = ResultStatus.COMPLETED
+    if provenance == "tracked_incomplete":
+        status = ResultStatus.PARTIAL_DATA
+        declared = int(filing.get("n_positions") or len(positions))
+        limitations.append(f"本地 13F 跟踪库只存了该申报 {declared} 个持仓中的 {len(positions)} 个，且 EDGAR 暂不可达：上面的“第 N 大持仓”只是已存持仓中的排名，最大的持仓可能不在其中，增减仓对比同样不完整。")
     changes_out: list[dict] = []
     if len(filings) >= 2:
         from v2.institutional.detector import detect_changes

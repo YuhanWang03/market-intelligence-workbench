@@ -104,3 +104,29 @@ def test_tracked_filings_reads_the_tracker_schema(tmp_path):
     rows = tracked_filings("1067983", 2, db_path=db)
     assert [f["quarter"] for f, _ in rows] == ["2026-Q1", "2025-Q4"] and len(rows[0][1]) == 3
     assert tracked_filings("0000000", 2, db_path=db) == []
+
+
+def test_a_store_missing_positions_is_not_complete():
+    from v2.agent_v3.institutional import filing_is_complete
+
+    filing = {**CURRENT[0], "n_positions": 90, "portfolio_value": 263_000_000_000}
+    assert not filing_is_complete(filing, CURRENT[1])  # 3 of 90 stored, 85B of 263B
+    assert filing_is_complete({**CURRENT[0], "n_positions": 3, "portfolio_value": 85_000_000_000}, CURRENT[1])
+
+
+def test_incomplete_store_falls_back_to_edgar_and_is_flagged_when_edgar_fails(monkeypatch):
+    from v2.agent_v3 import institutional
+
+    incomplete = [({**CURRENT[0], "n_positions": 90, "portfolio_value": 263_000_000_000}, CURRENT[1])]
+    monkeypatch.setattr(institutional, "tracked_filings", lambda cik, n, db_path=None: incomplete)
+    monkeypatch.setattr(institutional, "live_filings", lambda cik, name, n_filings=2: [CURRENT, PREVIOUS])
+    assert institutional.default_reader("1067983", "Berkshire Hathaway")[1] == "edgar"
+
+    def edgar_down(cik, name, n_filings=2):
+        raise ConnectionError("offline")
+    monkeypatch.setattr(institutional, "live_filings", edgar_down)
+    filings, provenance = institutional.default_reader("1067983", "Berkshire Hathaway")
+    assert provenance == "tracked_incomplete"
+    envelope = portfolio_envelope("1067983", "Berkshire Hathaway", filings, provenance=provenance)
+    assert envelope.status.value == "partial_data"
+    assert any("90 个持仓中的 3 个" in limit for limit in envelope.limitations)
