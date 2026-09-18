@@ -291,3 +291,13 @@ def test_regrade_rescores_saved_answers_without_running_agents(tmp_path):
     new = read_ledger(tmp_path / "dst")[0]
     assert new["score"]["judged"] and new["score"]["fixture_missing"] == 2 and new["regraded_from"] == "src" and new["error"] == ""
     assert regrade(source, tmp_path / "dst", judge) == []  # resume: nothing left
+
+
+def test_the_agents_thinking_switch_does_not_reach_the_judge(monkeypatch):
+    from v2.agent_bench.judge import judge_llm
+
+    for name, value in (("AGENT_BENCH_JUDGE_MODEL", "gpt-x"), ("AGENT_BENCH_JUDGE_BASE_URL", "https://judge.example/v1"), ("AGENT_BENCH_JUDGE_API_KEY", "k"), ("AGENT_LLM_THINKING", "disabled")):
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("AGENT_BENCH_JUDGE_THINKING", raising=False)
+    llm, meta = judge_llm()
+    assert llm.thinking is None and meta["judge_model"] == "gpt-x"

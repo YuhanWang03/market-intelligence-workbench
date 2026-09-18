@@ -64,7 +64,11 @@ def judge_llm() -> tuple[Any, dict[str, str]]:
         # One of three set is a half-configured judge, not a request for the agents' model.
         raise SystemExit("judge is half configured: missing " + ", ".join(name for name in names if name not in given) + " (set all three, in this window or in .env)")
     if model and base and key:
-        return OpenAICompatLLM(model=model, base_url=base, api_key=key, thinking=os.environ.get("AGENT_BENCH_JUDGE_THINKING") or None), {"judge_model": model, "judge_base_url": base, "judge_same_as_agent": "false"}
+        llm = OpenAICompatLLM(model=model, base_url=base, api_key=key)
+        # The agents' AGENT_LLM_THINKING (a DeepSeek switch) must not leak into the judge's
+        # requests: OpenAI rejects the argument. The judge has its own setting or none.
+        llm.thinking = (os.environ.get("AGENT_BENCH_JUDGE_THINKING") or "").strip().lower() or None
+        return llm, {"judge_model": model, "judge_base_url": base, "judge_same_as_agent": "false"}
     llm = OpenAICompatLLM()
     return llm, {"judge_model": llm.model, "judge_base_url": llm.base_url, "judge_same_as_agent": "true"}
 
