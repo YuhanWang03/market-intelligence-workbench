@@ -181,7 +181,8 @@ def grade(case: BenchCase, version: str, result: dict[str, Any], verdict: Verdic
 _PAIR_SYSTEM = """你是投研回答的评审员，不回答用户问题，不要输出任何文字，直接调用 compare 工具。
 给你用户的问题、一组评审标准（criteria，按序号）和两份回答 A、B。它们来自两个不同的系统，你不知道也不需要知道是哪两个。
 逐条标准判断哪份回答做得更好（A、B 或 tie），再给出整体更好的一份（winner：A、B 或 tie）和一句理由。
-只依据回答本身判断：数字有出处、限制说清楚、不把推断说成事实、不编造，比篇幅更重要。不要因为一份更长或格式更漂亮就偏向它。"""
+只依据回答本身判断：数字有出处、限制说清楚、不把推断说成事实、不编造，比篇幅更重要。不要因为一份更长或格式更漂亮就偏向它。
+today 是两份回答写下的日期，判断数据是否"尚未发布"以它为准。"""
 
 PAIR_TOOL = {
     "type": "function",
@@ -218,7 +219,8 @@ class PairJudge:
         from v2.agent_v2.agents.base import structured_call
         from v2.usage_context import usage_source
 
-        payload = {"question": question, "criteria": [{"index": i, "text": t} for i, t in enumerate(criteria)], "answer_A": answer_a[:6000], "answer_B": answer_b[:6000]}
+        from datetime import date
+        payload = {"today": date.today().isoformat(), "question": question, "criteria": [{"index": i, "text": t} for i, t in enumerate(criteria)], "answer_A": answer_a[:6000], "answer_B": answer_b[:6000]}
         with usage_source(self.usage_source_name):
             return structured_call(self.llm, _PAIR_SYSTEM, payload, PAIR_TOOL)
 

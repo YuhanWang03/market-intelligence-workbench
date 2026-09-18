@@ -132,7 +132,7 @@ class AgentV3:
             understanding = understanding.model_copy(update={"command": None, "kind": "help", "clarification": ask, "refers_back": False})
         holding=state.get("history",{}).get("portfolio_context",{})
         if understanding.market_scope=="us_broad" and not set(understanding.wants) & {"macro", "briefing"}:
-            understanding=understanding.model_copy(update={"tickers":["SPY","QQQ","DIA"],"wants":["performance"],"kind":"lookup","portfolio_scope":False,"portfolio_followup":"","portfolio_metric":"","analysis_scope":"focused","refers_back":False,"clarification":""})
+            understanding=understanding.model_copy(update={"tickers":["SPY","QQQ","DIA"],"wants":["performance","macro"],"kind":"lookup","portfolio_scope":False,"portfolio_followup":"","portfolio_metric":"","analysis_scope":"focused","refers_back":False,"clarification":""})
         if understanding.portfolio_followup=="explain_position":
             ticker=next(iter(understanding.tickers),None) or holding.get("ticker")
             if not ticker:

@@ -43,7 +43,8 @@ Judge = Callable[[str, str, list[str], list[str]], dict[str, Any]]
 _SYSTEM = """你是投研回答的评分员，不回答用户问题，不要输出任何文字或分析过程，直接调用 grade 工具。
 给你用户的问题、助手的回答、一组"必须满足"的标准（criteria，按序号）和一组"不得做出"的断言（forbidden，按序号）。
 逐条判断：每条标准回答是否满足（met），满足就引用回答里满足它的那句话（quote，30 字内）；每条断言回答是否做出了（asserted，意思相同即算，带"可能、尚未确认"这类限定的不算），做出了就引用那句话。
-只依据回答本身判断，不用你自己的知识补充事实。"""
+只依据回答本身判断，不用你自己的知识补充事实。today 是回答写下的日期：判断"尚未发布""未来"时以它为准，不用你训练数据里的日期。
+回答明确说"无法给出 X""没有 X 的数据"，不算做出了关于 X 的断言。"""
 
 GRADE_TOOL = {
     "type": "function",
@@ -75,7 +76,8 @@ class QualityJudge:
         from v2.agent_v2.agents.base import structured_call
         from v2.usage_context import usage_source
 
-        payload = {"question": question, "answer": (answer or "")[: self.max_answer_chars], "criteria": [{"index": index, "text": text} for index, text in enumerate(criteria)], "forbidden": [{"index": index, "text": text} for index, text in enumerate(forbidden)]}
+        from datetime import date
+        payload = {"today": date.today().isoformat(), "question": question, "answer": (answer or "")[: self.max_answer_chars], "criteria": [{"index": index, "text": text} for index, text in enumerate(criteria)], "forbidden": [{"index": index, "text": text} for index, text in enumerate(forbidden)]}
         with usage_source(self.usage_source_name):
             return structured_call(self.llm, _SYSTEM, payload, GRADE_TOOL)
 

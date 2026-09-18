@@ -97,10 +97,11 @@ class ModelBrain:
         if intent.tickers and intent.wants_any("attribution", "drawdown", "runup") and intent.scope != "since_purchase" and not (request.metadata.get("page_context", {}).get("selection") or {}).get("record_id"):
             return replace(deterministic, tasks=tuple(PlanTask(f"move-{ticker}", "market.explain_move", {"ticker": ticker}, purpose="Verify market move before researching candidate causes") for ticker in intent.tickers[:4]), assumptions=(), web_fallback_allowed=False)
         # A quote is a structured market read; the V2 template uses a research card.
-        if intent.kind == "lookup" and intent.tickers and set(intent.wants) == {"performance"}:
-            return replace(deterministic, tasks=tuple(
-                PlanTask(f"price-{ticker}", "market.performance", {"ticker": ticker}, purpose="dated market observations")
-                for ticker in intent.tickers[:4]))
+        # The broad market ("今天大盘怎么样") is the index ETFs plus the macro board.
+        if intent.kind == "lookup" and intent.tickers and set(intent.wants) in ({"performance"}, {"performance", "macro"}):
+            prices = tuple(PlanTask(f"price-{ticker}", "market.performance", {"ticker": ticker}, purpose="dated market observations") for ticker in intent.tickers[:4])
+            backdrop = (PlanTask("macro-overview", "macro.overview", purpose="market backdrop: VIX, yields, releases"),) if "macro" in intent.wants and registry.registered("macro.overview") else ()
+            return replace(deterministic, tasks=(*prices, *backdrop))
         if route.kind in {RouteKind.LAB, RouteKind.ASYNC}:
             supplied = request.metadata.get("experiment_arguments", {})
             deterministic = replace(deterministic, tasks=tuple(replace(task, arguments={**task.arguments, **supplied}) for task in deterministic.tasks))
