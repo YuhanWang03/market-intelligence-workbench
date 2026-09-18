@@ -41,8 +41,10 @@ def cmd_run(args) -> int:
     judge = None
     judge_meta = {}
     if not args.no_judge and args.mode != "offline":
-        from v2.agent_bench.judge import judge_llm, rubric_judge
+        from v2.agent_bench.judge import check_judge, judge_llm, rubric_judge
+        agent_builders.configure_model()  # .env first, so a judge that falls back to the agents' model has its key
         llm, judge_meta = judge_llm()
+        check_judge(llm)
         judge = rubric_judge(llm)
         if judge_meta.get("judge_same_as_agent") == "true":
             print("warning: judge model is the agents' model; set AGENT_BENCH_JUDGE_MODEL/BASE_URL/API_KEY to a different family for less self-preference", file=sys.stderr)
@@ -71,8 +73,9 @@ def cmd_pair(args) -> int:
     rows = read_ledger(root)
     if not rows:
         raise SystemExit(f"no ledger under {root}")
-    from v2.agent_bench.judge import PairJudge, compare_pair, judge_llm
+    from v2.agent_bench.judge import PairJudge, check_judge, compare_pair, judge_llm
     llm, meta = judge_llm()
+    check_judge(llm)
     judge = PairJudge(llm)
     table = by_id(all_cases())
     answers: dict[str, dict[str, str]] = {}
@@ -98,8 +101,12 @@ def cmd_regrade(args) -> int:
     target = Path(args.workdir) / args.to
     if not read_ledger(source):
         raise SystemExit(f"no ledger under {source}")
-    from v2.agent_bench.judge import judge_llm, rubric_judge
+    from v2.agent_bench.judge import check_judge, judge_llm, rubric_judge
     llm, meta = judge_llm()
+    check_judge(llm)
+    dropped = drop_unjudged(target) if (target / "ledger.jsonl").exists() else 0
+    if dropped:
+        print(f"RETRY {dropped} ungraded rows under {target.name} will be graded again", flush=True)
     rows = regrade(source, target, rubric_judge(llm), progress=lambda message: print(message, flush=True))
     conditions = json.loads((source / "conditions.json").read_text(encoding="utf-8")) if (source / "conditions.json").exists() else {}
     conditions.update(meta, label=args.to, regraded_from=args.label)

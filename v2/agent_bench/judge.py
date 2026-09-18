@@ -51,15 +51,30 @@ PairJudgeFn = Callable[[str, list[str], str, str], Verdict]
 
 def judge_llm() -> tuple[Any, dict[str, str]]:
     """The judge model: ``AGENT_BENCH_JUDGE_*`` when set (ideally a different family), else the agents' model."""
+    from pathlib import Path
+    from dotenv import load_dotenv
     from v2.agent_common.llm import OpenAICompatLLM
 
-    model = os.environ.get("AGENT_BENCH_JUDGE_MODEL")
-    base = os.environ.get("AGENT_BENCH_JUDGE_BASE_URL")
-    key = os.environ.get("AGENT_BENCH_JUDGE_API_KEY")
+    # The three settings may live in .env, so a new terminal window does not lose them.
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+    names = ("AGENT_BENCH_JUDGE_MODEL", "AGENT_BENCH_JUDGE_BASE_URL", "AGENT_BENCH_JUDGE_API_KEY")
+    model, base, key = (os.environ.get(name) for name in names)
+    given = [name for name, value in zip(names, (model, base, key)) if value]
+    if given and len(given) < 3:
+        # One of three set is a half-configured judge, not a request for the agents' model.
+        raise SystemExit("judge is half configured: missing " + ", ".join(name for name in names if name not in given) + " (set all three, in this window or in .env)")
     if model and base and key:
         return OpenAICompatLLM(model=model, base_url=base, api_key=key, thinking=os.environ.get("AGENT_BENCH_JUDGE_THINKING") or None), {"judge_model": model, "judge_base_url": base, "judge_same_as_agent": "false"}
     llm = OpenAICompatLLM()
     return llm, {"judge_model": llm.model, "judge_base_url": llm.base_url, "judge_same_as_agent": "true"}
+
+
+def check_judge(llm: Any) -> None:
+    """One tiny call before any agent runs: a judge that cannot answer stops the command, not 500 attempts later."""
+    try:
+        llm.complete([{"role": "user", "content": "ping"}])
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"judge model {getattr(llm, 'model', '?')} at {getattr(llm, 'base_url', '?')} is not reachable: {type(exc).__name__}: {str(exc)[:200]}")
 
 
 def rubric_judge(llm: Any) -> RubricJudgeFn:
