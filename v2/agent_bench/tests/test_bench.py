@@ -266,3 +266,28 @@ def test_drop_unjudged_removes_only_errored_ungraded_rows(tmp_path):
     (tmp_path / "ledger.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     assert drop_unjudged(tmp_path) == 1
     assert [r["case_id"] for r in read_ledger(tmp_path)] == ["a", "c"]
+
+
+def test_regrade_rescores_saved_answers_without_running_agents(tmp_path):
+    from v2.agent_bench.cases import all_cases
+    from v2.agent_bench.runner import regrade, read_ledger
+
+    case = next(c for c in all_cases() if c.set == "dev" and c.criteria and not c.expect_status)
+    source = tmp_path / "src"
+    (source / "results").mkdir(parents=True)
+    result = {"status": "completed", "answer": "一句回答", "route": {"kind": "lookup"}, "results": [], "evidence": [], "verification": {"ok": True}}
+    row = {"case_id": case.id, "version": "v2", "attempt": 1, "answer": "一句回答", "error": "judge: LLMError", "status": "completed", "debate": {},
+           "score": {"passed": False, "judged": False, "fixture_missing": 2, "problems": ["未经裁判评分"]}}
+    (source / "ledger.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
+    (source / "results" / f"{case.id}-v2-1.json").write_text(json.dumps({"row": row, "result": result}), encoding="utf-8")
+    calls = []
+
+    def judge(question, answer, criteria, forbidden):
+        calls.append(question)
+        return {"criteria": [{"index": i, "met": True} for i in range(len(criteria))], "forbidden": [{"index": i, "asserted": False} for i in range(len(forbidden))]}
+
+    out = regrade(source, tmp_path / "dst", judge)
+    assert calls == [case.question] and len(out) == 1
+    new = read_ledger(tmp_path / "dst")[0]
+    assert new["score"]["judged"] and new["score"]["fixture_missing"] == 2 and new["regraded_from"] == "src" and new["error"] == ""
+    assert regrade(source, tmp_path / "dst", judge) == []  # resume: nothing left

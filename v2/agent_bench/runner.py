@@ -184,6 +184,54 @@ class Run:
         return rows
 
 
+def regrade(source: Path, target: Path, judge: RubricJudgeFn, *, progress: Callable[[str], None] | None = None) -> list[dict[str, Any]]:
+    """Grade an existing label's answers again with another judge; nothing is rerun.
+
+    Every row of ``source`` is scored from its saved result and written to
+    ``target`` with a new ``score``; the answers, statuses and timings are
+    the source's. Rows already in ``target`` are kept (a resume).
+    """
+    from dataclasses import replace as _replace
+    from v2.agent_bench.cases import all_cases, by_id
+
+    progress = progress or (lambda message: None)
+    table = by_id(all_cases())
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "results").mkdir(exist_ok=True)
+    done = {(r["case_id"], r["version"], r["attempt"]) for r in read_ledger(target)}
+    out: list[dict[str, Any]] = []
+    for row in read_ledger(source):
+        key = (row["case_id"], row["version"], row["attempt"])
+        case = table.get(row["case_id"])
+        if key in done or case is None:
+            continue
+        saved = json.loads((source / "results" / f"{key[0]}-{key[1]}-{key[2]}.json").read_text(encoding="utf-8"))
+        result = saved["result"]
+        verdict = None
+        error = ""
+        if result.get("answer"):
+            for _ in range(2):
+                try:
+                    verdict = judge(case.question, str(result.get("answer") or ""), list(case.criteria), list(case.forbidden))
+                except Exception as exc:  # noqa: BLE001
+                    verdict, error = None, f"judge: {type(exc).__name__}: {str(exc)[:200]}"
+                    break
+                if verdict_is_valid(verdict):
+                    break
+        graded_case = case
+        if not saved["row"].get("debate") and "debater" in (case.expectations.get(row["version"]) or {}).get("agents", []):
+            scoped = {**case.expectations, row["version"]: {**case.expectations[row["version"]], "agents": [a for a in case.expectations[row["version"]]["agents"] if a != "debater"]}}
+            graded_case = _replace(case, expectations=scoped)
+        score = grade(graded_case, row["version"], result, verdict, fixture_missing=int(row["score"].get("fixture_missing") or 0))
+        new = {**row, "label": target.name, "regraded_from": source.name, "score": score.to_dict(), "error": error or (row["error"] if not str(row["error"]).startswith("judge:") else "")}
+        with (target / "ledger.jsonl").open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(new, ensure_ascii=False) + "\n")
+        (target / "results" / f"{key[0]}-{key[1]}-{key[2]}.json").write_text(json.dumps({"row": new, "result": result}, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        out.append(new)
+        progress(f"GRADE {key[0]} {key[1]} #{key[2]} {'PASS' if score.passed else 'FAIL'}" + (f" :: {'; '.join(p for p in score.problems[:2])}" if score.problems else ""))
+    return out
+
+
 def drop_unjudged(root: Path) -> int:
     """Remove rows a dead network left ungraded (judge or model unreachable) so a resume runs them again."""
     rows = read_ledger(root)

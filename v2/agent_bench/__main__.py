@@ -9,7 +9,7 @@ from pathlib import Path
 from v2.agent_bench import agents as agent_builders
 from v2.agent_bench.bank import Bank
 from v2.agent_bench.cases import CATEGORIES, all_cases, by_id, select
-from v2.agent_bench.runner import DEFAULT_WORKDIR, Run, drop_unjudged, read_ledger
+from v2.agent_bench.runner import DEFAULT_WORKDIR, Run, drop_unjudged, read_ledger, regrade
 
 
 def _cases(args) -> list:
@@ -93,6 +93,23 @@ def cmd_pair(args) -> int:
     return 0
 
 
+def cmd_regrade(args) -> int:
+    source = Path(args.workdir) / args.label
+    target = Path(args.workdir) / args.to
+    if not read_ledger(source):
+        raise SystemExit(f"no ledger under {source}")
+    from v2.agent_bench.judge import judge_llm, rubric_judge
+    llm, meta = judge_llm()
+    rows = regrade(source, target, rubric_judge(llm), progress=lambda message: print(message, flush=True))
+    conditions = json.loads((source / "conditions.json").read_text(encoding="utf-8")) if (source / "conditions.json").exists() else {}
+    conditions.update(meta, label=args.to, regraded_from=args.label)
+    (target / "conditions.json").write_text(json.dumps(conditions, ensure_ascii=False, indent=1), encoding="utf-8")
+    from v2.agent_bench.report import write_report
+    path = write_report(target, read_ledger(target))
+    print(f"{len(rows)} attempts regraded\nREPORT {path}")
+    return 0
+
+
 def cmd_report(args) -> int:
     root = Path(args.workdir) / args.label
     rows = read_ledger(root)
@@ -144,6 +161,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--seed", type=int, default=20260916)
     p.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
     p.set_defaults(func=cmd_pair)
+
+    p = sub.add_parser("regrade", help="score an existing label's answers again with the current judge model; agents are not rerun")
+    p.add_argument("--label", required=True, help="the label whose answers are regraded")
+    p.add_argument("--to", required=True, help="the new label the regraded ledger is written under")
+    p.add_argument("--workdir", default=str(DEFAULT_WORKDIR))
+    p.set_defaults(func=cmd_regrade)
 
     p = sub.add_parser("report", help="render report.md for a label")
     p.add_argument("--label", required=True)
