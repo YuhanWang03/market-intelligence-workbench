@@ -47,6 +47,7 @@ flowchart TD
 | `contracts.py` | V3 请求、语义意图、计划、任务和结果契约 |
 | `graph.py` | LangGraph 状态图、节点和条件边 |
 | `brain.py` | 分类、计划、合成和审阅所需的模型逻辑 |
+| `routing.py` | 两张声明式表：`NORMALIZERS`（把分类结果改写成规划器需要的形状）和 `RULES`（意图特征 → 工具组合，先匹配者生效）。命中的规则名写入 `plan.frame["route_rule"]` 和结果的 `synthesis.routing`，新增问题类型在这里加一行规则和一条测试，不要在 `brain.plan` 里加分支 |
 | `execution.py` / `tools.py` | DAG 执行、能力注册、边界与取消控制 |
 | `runtime.py` | 工作台数据源、模型、持久化和图运行时组装 |
 | `persistence.py` / `jobs.py` | checkpoint、会话、后台任务和恢复 |

@@ -66,51 +66,13 @@ class ModelBrain:
         return self.structured(SemanticIntent, INTENT_PROMPT, {"question": text, "history": context,"reference_date":date.today().isoformat()}, run, "classifier")
 
     def plan(self, request, route, registry, run):
-        deterministic = IntentPlanner().plan(request, route)
+        # Which tasks answer this intent is a table (routing.RULES), not a chain of
+        # branches here; the rule that fired is recorded in plan.frame["route_rule"].
+        from v2.agent_v3.routing import routed_plan
         intent = route.intent
-        if len(intent.tickers)>=2 and intent.wants_any("compare"):
-            return replace(deterministic,tasks=(PlanTask("compare","research.compare",{"tickers":list(intent.tickers[:4]),"dimensions":["overview"]}),*(PlanTask(f"price-{ticker}","market.performance",{"ticker":ticker}) for ticker in intent.tickers[:4])),assumptions=(),web_fallback_allowed=False)
-        if registry.registered("account.position_analysis") and intent.scope == "since_purchase" and intent.tickers and intent.wants_any("attribution", "drawdown", "runup"):
-            return replace(deterministic,tasks=(PlanTask("position-analysis","account.position_analysis",{"ticker":intent.tickers[0]}),),assumptions=(),web_fallback_allowed=False,frame={"kind":"holding","ticker":intent.tickers[0]})
-        if registry.registered("account.ranking") and intent.portfolio_scope and (intent.wants_any("ranking") or request.metadata.get("portfolio_metric")):
-            metric=request.metadata.get("portfolio_metric") or ("daily_return" if intent.scope=="today" else "unrealized_percent")
-            return replace(deterministic,tasks=(PlanTask("portfolio-ranking","account.ranking",{"metric":metric,"direction":"high" if intent.rank=="high" else "low"}),),assumptions=(),web_fallback_allowed=False)
-        # Questions the account already has a dedicated tool for must not be absorbed by the overview below.
-        if intent.portfolio_scope and not intent.tickers and not intent.each and registry.registered("account.earnings_schedule") and intent.wants_any("earnings"):
-            return replace(deterministic,tasks=(PlanTask("account-earnings","account.earnings_schedule",{"days":14},purpose="upcoming earnings across holdings and watchlist"),),assumptions=(),web_fallback_allowed=False)
-        if intent.portfolio_scope and not intent.tickers and intent.periods and registry.registered("account.performance") and not intent.wants_any("ranking","risk","earnings"):  # periods is only ever filled for an account P&L question
-            return replace(deterministic,tasks=tuple(PlanTask(f"account-performance-{period}","account.performance",{"period":period},purpose=f"account P&L for the {period}") for period in intent.periods),assumptions=(),web_fallback_allowed=False)
-        if registry.registered("account.overview") and intent.portfolio_scope and not intent.tickers and not intent.each and intent.kind in {"research", "lookup"} and not intent.wants_any("ranking", "attribution", "drawdown", "runup", "news"):
-            tasks = [PlanTask("portfolio-overview", "account.overview", purpose="Calculate the whole portfolio before any optional investigation")]
-            if registry.registered("market.performance"):
-                tasks.append(PlanTask("priority-market", "market.performance", {}, depends_on=("portfolio-overview",), required=False, fan_out={"from":"portfolio-overview","field":"priority_tickers","argument":"ticker","max":3}, purpose="Optional market context for largest exposure and loss contributors; valid for stocks and ETFs"))
-            return replace(deterministic, tasks=tuple(tasks), assumptions=(), web_fallback_allowed=False)
-        if registry.registered("etf.holdings") and request.metadata.get("data_target") == "etf_holdings":
-            return replace(deterministic,tasks=tuple(PlanTask(f"holdings-{ticker}","etf.holdings",{"ticker":ticker,"top":request.metadata.get("holdings_top",5)}) for ticker in intent.tickers[:4]),assumptions=(),web_fallback_allowed=False)
-        if intent.tickers and intent.wants_any("overview", "full") and intent.kind == "research":
-            tasks = []
-            for ticker in intent.tickers[:2]:
-                tasks.extend([PlanTask(f"market-{ticker}", "market.performance", {"ticker":ticker}), PlanTask(f"research-{ticker}", "research.stock", {"ticker":ticker,"focus":"overview"})])
-            return replace(deterministic, tasks=tuple(tasks), assumptions=(), web_fallback_allowed=False)
-        if intent.tickers and set(intent.wants) == {"news"}:
-            # "What's new" is answered from three sources: the web, the filings and
-            # the desk's own anomaly log, so the answer can say what each had.
-            tasks = []
-            for ticker in intent.tickers[:4]:
-                tasks.append(PlanTask(f"news-{ticker}", "web.research", {"query": request.text, "topic": "company_event", "ticker": ticker, "recency_days": 14}, purpose="Read and verify news originals"))
-                if registry.registered("filings.recent"):
-                    tasks.append(PlanTask(f"filings-{ticker}", "filings.recent", {"ticker": ticker}, required=False, purpose="Filings in the same window"))
-                if registry.registered("market.anomaly_history"):
-                    tasks.append(PlanTask(f"anomalies-{ticker}", "market.anomaly_history", {"ticker": ticker, "lookback_days": 14}, required=False, purpose="Desk anomaly records in the same window"))
-            return replace(deterministic, tasks=tuple(tasks), assumptions=(), web_fallback_allowed=False)
-        if intent.tickers and intent.wants_any("attribution", "drawdown", "runup") and intent.scope != "since_purchase" and not (request.metadata.get("page_context", {}).get("selection") or {}).get("record_id"):
-            return replace(deterministic, tasks=tuple(PlanTask(f"move-{ticker}", "market.explain_move", {"ticker": ticker}, purpose="Verify market move before researching candidate causes") for ticker in intent.tickers[:4]), assumptions=(), web_fallback_allowed=False)
-        # A quote is a structured market read; the V2 template uses a research card.
-        # The broad market ("今天大盘怎么样") is the index ETFs plus the macro board.
-        if intent.kind == "lookup" and intent.tickers and set(intent.wants) in ({"performance"}, {"performance", "macro"}):
-            prices = tuple(PlanTask(f"price-{ticker}", "market.performance", {"ticker": ticker}, purpose="dated market observations") for ticker in intent.tickers[:4])
-            backdrop = (PlanTask("macro-overview", "macro.overview", purpose="market backdrop: VIX, yields, releases"),) if "macro" in intent.wants and registry.registered("macro.overview") else ()
-            return replace(deterministic, tasks=(*prices, *backdrop))
+        deterministic, final = routed_plan(request, route, registry.registered)
+        if final:
+            return deterministic
         if route.kind in {RouteKind.LAB, RouteKind.ASYNC}:
             supplied = request.metadata.get("experiment_arguments", {})
             deterministic = replace(deterministic, tasks=tuple(replace(task, arguments={**task.arguments, **supplied}) for task in deterministic.tasks))
@@ -146,7 +108,7 @@ class ModelBrain:
             long = [task for task in tasks if registry.catalog.get(task.capability).long_running]
             if len(long) > 2 or any(task.fan_out and task.fan_out.get("max", 12) > 3 for task in long):
                 raise ValueError("Specialist budget exceeded")
-            plan = replace(deterministic, tasks=tasks, budget=BudgetClass.STANDARD, assumptions=tuple(output.assumptions))
+            plan = replace(deterministic, tasks=tasks, budget=BudgetClass.STANDARD, assumptions=tuple(output.assumptions), frame={**deterministic.frame, "route_rule": deterministic.frame.get("route_rule", "shared_plan") + "+model"})
             validate_plan(plan, registry)
             return plan
         except Exception as exc:

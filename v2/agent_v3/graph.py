@@ -130,32 +130,17 @@ class AgentV3:
             ticker = next(iter(understanding.tickers), None)
             ask = "我只能管理关注列表和价格提醒，不能下单交易，也不会替你买卖。" + (f"你是想把 {ticker} 加入关注列表，还是设置价格提醒？" if ticker else "需要的话可以告诉我把哪只股票加入关注列表或设置价格提醒。")
             understanding = understanding.model_copy(update={"command": None, "kind": "help", "clarification": ask, "refers_back": False})
-        holding=state.get("history",{}).get("portfolio_context",{})
-        if understanding.market_scope=="us_broad" and not set(understanding.wants) & {"macro", "briefing"}:
-            understanding=understanding.model_copy(update={"tickers":["SPY","QQQ","DIA"],"wants":["performance","macro"],"kind":"lookup","portfolio_scope":False,"portfolio_followup":"","portfolio_metric":"","analysis_scope":"focused","refers_back":False,"clarification":""})
-        if understanding.portfolio_followup=="explain_position":
-            ticker=next(iter(understanding.tickers),None) or holding.get("ticker")
-            if not ticker:
-                return {"status":"waiting_clarification","answer":"请指定需要解释的持仓股票；上一轮没有唯一的排名对象。"}
-            understanding=understanding.model_copy(update={"tickers":[ticker],"scope":"since_purchase","wants":["attribution"],"portfolio_scope":True,"date_window":None,"refers_back":False,"portfolio_metric":holding.get("metric","unrealized_percent")})
-        elif understanding.portfolio_followup=="rerank":
-            understanding=understanding.model_copy(update={"tickers":[],"portfolio_scope":True,"wants":["ranking"],"refers_back":False})
-        if understanding.lab:
-            understanding = understanding.model_copy(update={"kind":"lab", "analysis_scope":"focused", "refers_back":False})
-        if understanding.analysis_scope == "company" and understanding.kind != "lab" and 'compare' not in understanding.wants:
-            understanding = understanding.model_copy(update={"kind":"research", "wants":["overview", "performance", "valuation", "risk"], "refers_back":False, "investigation":""})
-        if "news" in understanding.wants and set(understanding.wants) <= {"news", "catalysts"}:
-            understanding = understanding.model_copy(update={"wants":["news"]})
-        if (not understanding.date_window or (understanding.scope=="recent" and not understanding.date_window_explicit)) and ("news" in understanding.wants or (understanding.scope == "recent" and set(understanding.wants) & {"attribution", "drawdown", "runup"})):
-            from datetime import date, timedelta
-            from v2.agent_v3.contracts import DateWindow
-            attribution = bool(set(understanding.wants) & {"attribution", "drawdown", "runup"})
-            days = 30 if attribution else 14
-            understanding = understanding.model_copy(update={"date_window":DateWindow(start=(date.today()-timedelta(days=days-1)).isoformat(),end=date.today().isoformat(),basis="event" if attribution else "publication")})
+        # The rewrites that turn the classifier's reading into the shape the planners
+        # expect are a named, ordered list (routing.NORMALIZERS), recorded on the run.
+        from v2.agent_v3.routing import IntentContext, normalize_intent
+        holding = state.get("history", {}).get("portfolio_context", {})
+        if understanding.portfolio_followup == "explain_position" and not (understanding.tickers or holding.get("ticker")):
+            return {"status": "waiting_clarification", "answer": "请指定需要解释的持仓股票；上一轮没有唯一的排名对象。"}
+        understanding, normalizers = normalize_intent(understanding, IntentContext(holding=holding))
         request = NormalizedRequest(state["text"], state["text"], entities=tuple(understanding.tickers))
         decision = route(request, intent=understanding.domain())
         selected_evidence = [row for row in state.get("monitor_evidence", []) if row.get("entity") in understanding.tickers]
-        update = {"intent": understanding.model_dump(), "route": decision.kind.value, "monitor_evidence": selected_evidence}
+        update = {"intent": understanding.model_dump(), "route": decision.kind.value, "monitor_evidence": selected_evidence, "routing": {"normalizers": normalizers}}
         if understanding.use_selected_record and selected_evidence:
             plan = ExecutionPlan(state["text"], RouteKind.RESEARCH, answer_mode=AnswerMode.RESEARCH_GROUNDED)
             return {**update, "record_answer": True, "route": RouteKind.RESEARCH.value, "plan": plain(plan), "results": [], "evidence": selected_evidence}
@@ -564,4 +549,4 @@ class AgentV3:
         if state["status"] == "waiting_confirmation":
             task = plan.tasks[0]
             pending = PendingMutation(task.arguments["operation"], task.arguments["payload"], task.purpose or task.capability)
-        return AgentResult(run_id=state["run_id"], request=self._request(state), route=RouteDecision(plan.route, (), "LangGraph semantic routing"), plan=plan, status=RunStatus(state["status"]), answer=state["answer"], answer_mode=plan.answer_mode, results=[envelope_from(row) for row in state.get("results", [])], evidence=[EvidenceItem(**row) for row in state.get("evidence", [])], verification=VerificationReport(**state.get("report", {})), elapsed_ms=elapsed_ms, error=state.get("error", ""), stop_reason=state.get("stop_reason", ""), pending_mutation=pending, synthesis={"framework": "langgraph", "nodes": state.get("trace", []), "attempts": state.get("attempts", []), "outcome": "fallback" if state.get("fallback") else ("repaired" if state.get("repairs") else "model"), "usage": list(run.usage), "objections": state.get("objections", []), "debate": state.get("debate", {})})
+        return AgentResult(run_id=state["run_id"], request=self._request(state), route=RouteDecision(plan.route, (), "LangGraph semantic routing"), plan=plan, status=RunStatus(state["status"]), answer=state["answer"], answer_mode=plan.answer_mode, results=[envelope_from(row) for row in state.get("results", [])], evidence=[EvidenceItem(**row) for row in state.get("evidence", [])], verification=VerificationReport(**state.get("report", {})), elapsed_ms=elapsed_ms, error=state.get("error", ""), stop_reason=state.get("stop_reason", ""), pending_mutation=pending, synthesis={"framework": "langgraph", "nodes": state.get("trace", []), "attempts": state.get("attempts", []), "outcome": "fallback" if state.get("fallback") else ("repaired" if state.get("repairs") else "model"), "usage": list(run.usage), "objections": state.get("objections", []), "debate": state.get("debate", {}), "intent": state.get("intent", {}), "routing": {**state.get("routing", {}), "rule": plan.frame.get("route_rule", "")}})

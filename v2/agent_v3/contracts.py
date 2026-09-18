@@ -220,6 +220,8 @@ class GraphState(TypedDict, total=False):
     approved: bool
     confirmation_expires: float
     objections: list[dict]
+    #: Which intent normalizers changed the classifier's reading (routing.NORMALIZERS).
+    routing: dict
     #: Adversarial review record: ran, skipped (reason), objections, revised,
     #: revised_verified, error.  Present on every finished run.
     debate: dict
