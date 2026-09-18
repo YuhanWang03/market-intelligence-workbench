@@ -51,6 +51,14 @@ class Command(BaseModel):
     alert_id: int | None = Field(default=None, ge=1)
 
 
+#: Objectives the model names in the research-focus vocabulary or in plain
+#: words; each maps onto the intent objective the planners understand.
+WANT_ALIASES = {"fundamentals": "overview", "financials": "overview", "cashflow": "overview", "cash_flow": "overview", "free_cash_flow": "overview", "profitability": "overview", "growth": "overview", "margins": "overview",
+                "price": "performance", "quote": "performance", "volume": "performance", "returns": "performance", "volatility": "performance",
+                "catalyst": "catalysts", "event": "catalysts", "events": "news", "headlines": "news", "insiders": "ownership", "institutions": "ownership", "holders": "ownership",
+                "risks": "risk", "comparison": "compare", "versus": "compare", "rank": "ranking", "holdings": "portfolio", "pnl": "portfolio", "rates": "macro", "yields": "macro", "inflation": "macro"}
+
+
 class SemanticIntent(BaseModel):
     """Meaning of the request, never inferred with phrase matching."""
 
@@ -103,9 +111,14 @@ class SemanticIntent(BaseModel):
     @field_validator("wants")
     @classmethod
     def known_wants(cls, values):
-        if set(values) - set(WANTS):
+        # A synonym is folded onto its objective; an objective nobody knows is
+        # dropped when others remain, and only an empty result fails validation.
+        known = set(WANTS)
+        mapped = [WANT_ALIASES.get(value, value) for value in values]
+        kept = list(dict.fromkeys(value for value in mapped if value in known))
+        if values and not kept:
             raise ValueError("unknown research objective")
-        return values
+        return kept
 
     @field_validator("release", mode="before")
     @classmethod

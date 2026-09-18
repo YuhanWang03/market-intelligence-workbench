@@ -28,3 +28,13 @@ def test_planner_refuses_an_operation_it_does_not_know(operation):
 def test_account_periods_are_normalised_to_the_tool_enum():
     intent = SemanticIntent.model_validate({"kind": "research", "portfolio_scope": True, "wants": ["performance"], "periods": ["today", "month_to_date", "day", "decade"]})
     assert intent.periods == ["day", "month"]
+
+
+def test_wants_synonyms_fold_onto_known_objectives():
+    intent = SemanticIntent.model_validate({"kind": "research", "tickers": ["NVDA", "AMD"], "wants": ["compare", "fundamentals", "made_up"]})
+    assert intent.wants == ["compare", "overview"]
+
+
+def test_wants_with_nothing_recognisable_still_fail():
+    with pytest.raises(ValidationError):
+        SemanticIntent.model_validate({"kind": "research", "tickers": ["NVDA"], "wants": ["made_up"]})
