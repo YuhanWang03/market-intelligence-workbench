@@ -93,7 +93,16 @@ class ModelBrain:
                 tasks.extend([PlanTask(f"market-{ticker}", "market.performance", {"ticker":ticker}), PlanTask(f"research-{ticker}", "research.stock", {"ticker":ticker,"focus":"overview"})])
             return replace(deterministic, tasks=tuple(tasks), assumptions=(), web_fallback_allowed=False)
         if intent.tickers and set(intent.wants) == {"news"}:
-            return replace(deterministic, tasks=tuple(PlanTask(f"news-{ticker}", "web.research", {"query": request.text, "topic": "company_event", "ticker": ticker, "recency_days": 14}, purpose="Read and verify news originals") for ticker in intent.tickers[:4]), assumptions=(), web_fallback_allowed=False)
+            # "What's new" is answered from three sources: the web, the filings and
+            # the desk's own anomaly log, so the answer can say what each had.
+            tasks = []
+            for ticker in intent.tickers[:4]:
+                tasks.append(PlanTask(f"news-{ticker}", "web.research", {"query": request.text, "topic": "company_event", "ticker": ticker, "recency_days": 14}, purpose="Read and verify news originals"))
+                if registry.registered("filings.recent"):
+                    tasks.append(PlanTask(f"filings-{ticker}", "filings.recent", {"ticker": ticker}, required=False, purpose="Filings in the same window"))
+                if registry.registered("market.anomaly_history"):
+                    tasks.append(PlanTask(f"anomalies-{ticker}", "market.anomaly_history", {"ticker": ticker, "lookback_days": 14}, required=False, purpose="Desk anomaly records in the same window"))
+            return replace(deterministic, tasks=tuple(tasks), assumptions=(), web_fallback_allowed=False)
         if intent.tickers and intent.wants_any("attribution", "drawdown", "runup") and intent.scope != "since_purchase" and not (request.metadata.get("page_context", {}).get("selection") or {}).get("record_id"):
             return replace(deterministic, tasks=tuple(PlanTask(f"move-{ticker}", "market.explain_move", {"ticker": ticker}, purpose="Verify market move before researching candidate causes") for ticker in intent.tickers[:4]), assumptions=(), web_fallback_allowed=False)
         # A quote is a structured market read; the V2 template uses a research card.

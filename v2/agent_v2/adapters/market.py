@@ -567,6 +567,16 @@ def _drawdown_envelope(ticker: str, context: ExecutionContext, price_source, *, 
     for day, change, close in worst:
         evidence.append(_item(day_scope, ticker, day, f"{ticker} {day} 单日 {change:+.2%}，收盘 {close:.2f} 美元。", context, metric="daily_return", value=change, metadata={"date": day, "close": close}))
     metrics[days_key] = [{"date": day, "return": change, "close": close} for day, change, close in worst]
+    # A bigger day elsewhere in the window (before the high, or after the low)
+    # is still part of "why did my position fall": named, and placed.
+    if inside is not daily and worst:
+        threshold = min(abs(row[1]) for row in worst)
+        outside = [row for row in daily if row not in inside and ((row[1] > 0) if up else (row[1] < 0)) and abs(row[1]) > threshold]
+        for day, change, close in sorted(outside, key=lambda row: -abs(row[1]))[:2]:
+            placed = "高点之前" if day <= first else "低点之后"
+            if up:
+                placed = "低点之前" if day <= first else "高点之后"
+            evidence.append(_item(f"{day_scope}_outside", ticker, day, f"{ticker} {day} 单日 {change:+.2%}，收盘 {close:.2f} 美元，发生在本轮{'上涨' if up else '回撤'}区间之外（{placed}）。", context, metric="daily_return", value=change, metadata={"date": day, "close": close, "in_stretch": False, "placed": placed}))
     peak, trough = span[peak_index], span[trough_index]
     if drawdown is not None:
         peak_day, trough_day = str(peak.time)[:10], str(trough.time)[:10]
@@ -657,6 +667,9 @@ def _drawdown_narrative(result: ToolEnvelope, label: str) -> str:
         parts.append(f"{span_item.claim.rstrip('。')}{_cite(span_item)}。")
     if worst_items:
         parts.append(f"{ticker} 近 {label}{'涨幅' if up else '跌幅'}最大的交易日：" + "；".join(f"{item.metadata['date']} {float(item.value):+.2%}{_cite(item)}" for item in worst_items) + "。")
+        outside_items = _scoped(result.evidence, ("best_day" if up else "worst_day") + "_outside")
+        if outside_items:
+            parts.append("区间之外另有：" + "；".join(f"{item.metadata['date']} {float(item.value):+.2%}（{item.metadata['placed']}）{_cite(item)}" for item in outside_items) + "。")
     else:
         parts.append(f"{ticker} 近 {label}区间内没有{'上涨' if up else '下跌'}的交易日。")
     return "\n".join(parts)
