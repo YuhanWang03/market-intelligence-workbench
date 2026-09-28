@@ -40,6 +40,7 @@ _EXACT_PATHS = {
     "/api/research/history/NVDA",
     "/api/research/history/NVDA/compare",
     "/api/research/peers/NVDA",
+    "/api/public/agent-examples",
 }
 
 

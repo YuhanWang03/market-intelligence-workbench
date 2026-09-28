@@ -4,7 +4,7 @@
 
 import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep, confirmAgentV3Run, type AgentPendingMutation } from './lib/api';
+import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep, confirmAgentV3Run, type AgentPendingMutation, type AgentExample, fetchAgentExamples, publishAgentExample, unpublishAgentExample } from './lib/api';
 import { LabPage, labMenu, type LabTool } from './lab';
 import { RelationshipMap } from './relationship-map';
 import { MoneyflowPanel, type FlowAnalysis } from './moneyflow-panel';
@@ -31,7 +31,7 @@ function synthesisWarnings(synthesis: AgentV2Response['synthesis']): string[] {
     return [...(attempt.warnings || []), ...(attempt.unknown_citations || []).map(id => `未知证据引用：${id}`), ...(attempt.ungrounded_numbers || []).map(value => `未落地数字：${value}`)].map(item => `${stage}被拒：${item}`);
   });
 }
-type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; sentAt?: number; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
+type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; sentAt?: number; exampleId?: string; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
 type Position = { symbol: string; current_price: number; market_value: number; unrealized_pl: number; unrealized_pl_pct: number };
 type PortfolioResponse = { account: { cash: number; portfolio_value: number; paper: boolean }; positions: Position[]; pnl: { intraday_pl_pct: number; portfolio_value: number; cash: number }; history?: { timestamp: number[]; equity: number[] } };
 type RiskResponse = { pnl: { daily_pnl_pct: number | null }; concentration: { top_1_pct: number; top_3_pct: number }; exposure: { largest_sector: string; largest_sector_pct: number }; drawdown: { current_drawdown_pct: number | null }; earnings_risk: { ticker: string; days_until: number }[] };
@@ -351,6 +351,28 @@ export default function Home() {
   const [alertFilter, setAlertFilter] = useState<'all' | 'positions' | 'p0'>('all'); const [researchTicker, setResearchTicker] = useState('NVDA'); const [chatInput, setChatInput] = useState(''); const [chatBusy, setChatBusy] = useState(false); const [chatContext, setChatContext] = useState('盯盘总览'); const [chatMode, setChatMode] = useState<ChatMode>('agent_v2'); const [allowAgentWeb, setAllowAgentWeb] = useState(true); const [chatProgress, setChatProgress] = useState('');
   const [pageSelection, setPageSelection] = useState<PageSelection | undefined>();
   const [messages, setMessages] = useState<ChatMessage[]>([{ id: 1, role: 'assistant', text: '我会结合左侧当前页面、持仓和市场数据回答。你可以直接在这里提问。', meta: '事实与推断会分开标注' }]);
+  const [examples, setExamples] = useState<AgentExample[]>([]);
+  const [examplesNote, setExamplesNote] = useState('');
+  // Guests see the owner's published answers as a conversation; the owner sees the same list to manage it.
+  const loadExamples = useCallback(async (role: AccessStatus['role']) => {
+    try { setExamples(await fetchAgentExamples()) }
+    catch (error) { setExamples([]); if (role === 'owner') setExamplesNote(error instanceof Error ? error.message : '示例读取失败') }
+  }, []);
+  const publishExample = async (answer: ChatMessage) => {
+    const index = messages.findIndex(item => item.id === answer.id);
+    const question = [...messages.slice(0, index)].reverse().find(item => item.role === 'user');
+    if (!question || !answer.agent || !answer.sentAt) { setExamplesNote('找不到这条回答对应的问题'); return }
+    try {
+      const row = await publishAgentExample({ question: question.text, mode: (answer.mode === 'agent_v3' ? 'agent_v3' : 'agent_v2'), asked_at: new Date(question.sentAt || answer.sentAt).toISOString(), answered_at: new Date(answer.sentAt).toISOString(), answer: answer.text, meta: answer.meta || '', agent: answer.agent as unknown as Record<string, unknown>, evidence: answer.evidence || [] });
+      setMessages(items => items.map(item => item.id === answer.id ? { ...item, exampleId: row.id } : item));
+      setExamples(items => [...items, row]);
+      setExamplesNote(`已发布为访客示例（${new Date(row.published_at).toLocaleString('zh-CN')}）`);
+    } catch (error) { setExamplesNote(error instanceof Error ? error.message : '发布失败') }
+  };
+  const unpublishExample = async (id: string) => {
+    try { await unpublishAgentExample(id); setExamples(items => items.filter(item => item.id !== id)); setMessages(items => items.map(item => item.exampleId === id ? { ...item, exampleId: undefined } : item)); setExamplesNote('已从访客示例移除') }
+    catch (error) { setExamplesNote(error instanceof Error ? error.message : '移除失败') }
+  };
   const isGuest = access?.role === 'guest';
   useEffect(() => { accessRef.current = access }, [access]);
   const refreshData = useCallback(async (refreshChartSnapshots = false) => {
@@ -441,6 +463,7 @@ export default function Home() {
     return () => { active = false };
   }, []);
   useEffect(() => { if (access?.authenticated) void refreshData() }, [access?.authenticated, access?.role, refreshData]);
+  useEffect(() => { if (access?.authenticated) void loadExamples(access.role) }, [access?.authenticated, access?.role, loadExamples]);
   useEffect(() => () => chatRequestRef.current?.abort(), []);
   useEffect(() => { const updateClock = () => { const now = new Date(); setCurrentTime(formatClock(now)); setEasternTime(formatClockInZone(now, 'America/New_York')) }; updateClock(); const timer = window.setInterval(updateClock, 1000); return () => window.clearInterval(timer) }, []);
   const refreshCosts = useCallback(async (recentFilter = 'all', offset = 0, syncPrices = false) => { setCostLoading(true); setCostError(''); try { const query = new URLSearchParams({ limit: '100', filter: recentFilter, offset: String(offset) }); setCostReport(await apiJson<CostReport>(`/api/costs${syncPrices ? '/refresh' : ''}?${query}`, syncPrices ? { method: 'POST' } : undefined)) } catch (error) { setCostError(error instanceof Error ? error.message : 'unknown') } finally { setCostLoading(false) } }, []);
@@ -623,8 +646,12 @@ export default function Home() {
         </div>
         <div className="context-bar"><span>当前上下文</span><strong>{chatContext}</strong></div>
         <div className="message-list" ref={messageListRef} aria-live="polite">
-          {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。</span></div>}
-          {messages.map(message => <div key={message.id} className={`message ${message.role}`}>
+          {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>{examples.length ? `下面是所有者发布的 ${examples.length} 条真实问答示例，每条标有提问和回答的时间，数字属于那一天。访客不能提问，请求不会发送给 Agent 或外部数据服务。` : '访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。'}</span></div>}
+          {!isGuest && (examples.length > 0 || examplesNote) && <details className="example-manager"><summary>访客示例（{examples.length}/12）{examplesNote && <em>{examplesNote}</em>}</summary><ol>{examples.map(item => <li key={item.id}><span>{CHAT_LABELS[item.mode]} · {formatClock(new Date(item.answered_at))} · {item.question}</span><button type="button" onClick={() => void unpublishExample(item.id)}>移除</button></li>)}</ol></details>}
+          {(isGuest ? examples.flatMap<ChatMessage>((item, index) => [
+            { id: -(index * 2 + 2), role: 'user', text: item.question, mode: item.mode, sentAt: Date.parse(item.asked_at) },
+            { id: -(index * 2 + 3), role: 'assistant', text: item.answer, mode: item.mode, sentAt: Date.parse(item.answered_at), agent: item.agent as unknown as AgentChatMeta, evidence: item.evidence, meta: `示例问答 · 发布于 ${new Date(item.published_at).toLocaleString('zh-CN')} · ${item.meta}`, exampleId: item.id },
+          ]) : messages).map(message => <div key={message.id} className={`message ${message.role}`}>
             {(message.sentAt || (message.role === 'user' && message.mode)) && <div className="message-mode">{message.role === 'user' && message.mode && <span>{CHAT_LABELS[message.mode]}</span>}{message.sentAt && <time dateTime={new Date(message.sentAt).toISOString()} title={`美东 ${formatClockInZone(new Date(message.sentAt), 'America/New_York')}`}>{message.role === 'user' ? '发送' : '回答'} {formatClock(new Date(message.sentAt))}</time>}</div>}
             {message.agent && <div className="agent-badges"><span>{message.agent.status}</span>{message.agent.status === 'partial' && <span className="warning">数据或结论仍有缺口</span>}<span>{message.agent.route}</span><span>{message.agent.answerMode}</span>{Boolean(message.evidence?.length) && <span title="仅表示引用和数字可追溯，不代表数据口径一致或原因已确认" className={message.agent.verified ? 'verified' : 'warning'}>{message.agent.verified ? '引用与数字可追溯' : '引用或数字校验有警告'}</span>}{message.agent.synthesis && <span className={message.agent.synthesisFallback ? 'warning' : ''}>{message.agent.synthesis}</span>}{message.agent.rewritten && <span title={message.agent.rewritten}>接上文</span>}{message.agent.webAllowed && <span className="web">Web 已授权</span>}{message.agent.webRequested && !message.agent.webEnabled && <span className="warning">服务端未启用 Web</span>}<span>{(message.agent.elapsedMs / 1000).toFixed(1)}s</span></div>}
             <div className="message-body">{message.role === 'assistant' ? <AgentAnswer text={message.text} evidence={message.evidence} messageId={message.id}/> : message.text}</div>
@@ -632,6 +659,7 @@ export default function Home() {
             {message.agent?.pendingMutation && message.agent.status === 'waiting_confirmation' && <div className="confirm-actions" role="group" aria-label="确认修改"><span>{message.agent.pendingMutation.operation} · {JSON.stringify(message.agent.pendingMutation.payload)}</span><button type="button" disabled={chatBusy || isGuest} onClick={() => void resolveConfirmation(message, true)}>确认执行</button><button type="button" className="secondary" disabled={chatBusy || isGuest} onClick={() => void resolveConfirmation(message, false)}>取消</button></div>}
             {message.agent && message.agent.capabilities.length > 0 && <details className="agent-detail"><summary>执行工具（{message.agent.capabilities.length}）{message.agent.subAgents.length > 0 && ` · 子智能体 ${message.agent.subAgents.length}`}</summary><div className="capability-list">{message.agent.capabilities.map((capability, index) => <code key={`${capability}-${index}`}>{capability}</code>)}</div>{message.agent.subAgents.map((agent, index) => <div key={`${agent.capability}-${index}`} className="sub-agent"><SubAgentTrace label={`${agent.label} ${agent.subject}`} rounds={agent.rounds} elapsedMs={agent.elapsed_ms} stop={agent.stop_reason} calls={agent.calls} trace={agent.trace} intraday={agent.intraday} notes={agent.notes}/>{agent.nested.map((nested, nestedIndex) => <div key={nestedIndex} className="sub-agent nested"><SubAgentTrace label={nested.label} rounds={nested.rounds} elapsedMs={nested.elapsed_ms} stop={nested.stop_reason} calls={nested.calls} trace={nested.trace}/></div>)}</div>)}</details>}
             {message.evidence && message.evidence.length > 0 && <details id={`agent-evidence-${message.id}`} className="agent-detail"><summary>证据（{message.evidence.length}）</summary><ol className="evidence-list">{message.evidence.map((item, index) => <li id={`agent-evidence-${message.id}-${index + 1}`} key={item.id}><div><code>{item.id}</code>{item.entity && <strong>{item.entity}</strong>}</div><p>{item.claim}</p>{item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">{item.source_title || item.source_id || '查看来源'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</a> : <small>{item.source_title || item.source_id || '内部计算结果'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</small>}</li>)}</ol></details>}
+            {!isGuest && message.role === 'assistant' && message.agent && message.sentAt && message.agent.status !== 'failed' && <div className="example-actions">{message.exampleId ? <span>已发布为访客示例</span> : <button type="button" disabled={chatBusy} onClick={() => void publishExample(message)}>发布为访客示例</button>}</div>}
             {message.agent && message.agent.warnings.length > 0 && <details className="agent-detail warning-detail"><summary>校验警告（{message.agent.warnings.length}）</summary><ul>{message.agent.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></details>}
             {message.meta && <div className="message-meta">{message.meta}</div>}
           </div>)}

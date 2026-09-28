@@ -47,7 +47,7 @@ async function rawJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 function canPublishSnapshot(path: string): boolean {
   const pathname = path.split('?', 1)[0];
-  const exact = new Set(['/api/portfolio', '/api/risk', '/api/tickertape', '/api/activity', '/api/macro', '/api/history', '/api/flow_status', '/api/recommendations', '/api/monitoring/universe', '/api/watchlist', '/api/price-alerts', '/api/costs', '/api/lab/screening/criteria', '/api/lab/universes', '/api/lab/signals', '/api/lab/runs', '/api/lab/committee/personas', '/api/lab/committee/runs', '/api/lab/committee/scoreboard', '/api/lab/committee/pricing', '/api/research/results/NVDA', '/api/research/history/NVDA', '/api/research/history/NVDA/compare', '/api/research/peers/NVDA']);
+  const exact = new Set(['/api/portfolio', '/api/risk', '/api/tickertape', '/api/activity', '/api/macro', '/api/history', '/api/flow_status', '/api/recommendations', '/api/monitoring/universe', '/api/watchlist', '/api/price-alerts', '/api/costs', '/api/lab/screening/criteria', '/api/lab/universes', '/api/lab/signals', '/api/lab/runs', '/api/lab/committee/personas', '/api/lab/committee/runs', '/api/lab/committee/scoreboard', '/api/lab/committee/pricing', '/api/research/results/NVDA', '/api/research/history/NVDA', '/api/research/history/NVDA/compare', '/api/research/peers/NVDA', '/api/public/agent-examples']);
   return exact.has(pathname) || pathname.startsWith('/api/price-history/') || pathname.startsWith('/api/lab/runs/') || pathname.startsWith('/api/lab/committee/runs/');
 }
 
@@ -146,6 +146,21 @@ export type AgentV2Response = {
 };
 
 export type AgentPendingMutation = { operation: string; payload: Record<string, unknown>; description: string };
+
+/** An answered question the owner published for guests; times are ISO instants. */
+export type AgentExample = { id: string; question: string; mode: 'agent_v2' | 'agent_v3'; asked_at: string; answered_at: string; answer: string; meta: string; agent: Record<string, unknown>; evidence: AgentV2Evidence[]; published_at: string };
+
+export async function fetchAgentExamples(): Promise<AgentExample[]> {
+  return apiJson<AgentExample[]>('/api/public/agent-examples');
+}
+
+export async function publishAgentExample(example: Omit<AgentExample, 'id' | 'published_at'>): Promise<AgentExample> {
+  return rawJson<AgentExample>('/api/public/agent-examples', { method: 'POST', body: JSON.stringify(example) });
+}
+
+export async function unpublishAgentExample(id: string): Promise<void> {
+  await rawJson(`/api/public/agent-examples/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
 
 export type AgentV2Job = {
   job_id: string;

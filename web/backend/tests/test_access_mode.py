@@ -143,3 +143,27 @@ def test_chart_snapshot_worker_publishes_each_symbol_range(monkeypatch, tmp_path
     assert one_month and one_month["payload"]["range"] == "1M"
     assert three_month and three_month["payload"]["range"] == "3M"
     assert chart_snapshots.chart_snapshot_status()["published"] == 2
+
+
+def test_owner_publishes_answered_questions_and_guests_read_them_frozen(monkeypatch, tmp_path):
+    owner = _client(monkeypatch, tmp_path)
+    assert owner.post("/api/auth/login", json={"username": "owner", "password": "owner-secret-value"}).status_code == 200
+    example = {"question": "AAPL最近涨了还是跌了？", "mode": "agent_v2", "asked_at": "2026-09-28T07:56:29Z", "answered_at": "2026-09-28T07:56:34Z",
+               "answer": "AAPL 最近一个交易日收跌 [1]。", "meta": "运行 agent-v2-1", "agent": {"status": "completed", "elapsedMs": 4900}, "evidence": [{"id": "1", "claim": "收盘 338.40"}]}
+    published = owner.post("/api/public/agent-examples", json=example)
+    assert published.status_code == 200
+    row = published.json()
+    assert row["id"] and row["published_at"] and row["asked_at"] == example["asked_at"]
+    assert owner.post("/api/public/agent-examples", json={**example, "mode": "chat"}).status_code == 422
+    assert [r["id"] for r in owner.get("/api/public/agent-examples").json()] == [row["id"]]
+
+    guest = _client(monkeypatch, tmp_path)
+    assert guest.post("/api/auth/guest", json={}).status_code == 200
+    seen = guest.get("/api/public/snapshot", params={"path": "/api/public/agent-examples"})
+    assert seen.status_code == 200 and seen.json()["payload"][0]["answer"] == example["answer"]
+    assert guest.post("/api/public/agent-examples", json=example).status_code == 403
+    assert guest.delete(f"/api/public/agent-examples/{row['id']}").status_code == 403
+
+    assert owner.delete(f"/api/public/agent-examples/{row['id']}").status_code == 200
+    assert owner.delete(f"/api/public/agent-examples/{row['id']}").status_code == 404
+    assert guest.get("/api/public/snapshot", params={"path": "/api/public/agent-examples"}).json()["payload"] == []
