@@ -25,7 +25,8 @@ function SubAgentTrace({ label, rounds, elapsedMs, stop, calls, trace, intraday,
 }
 const SYNTHESIS_LABELS: Record<string, string> = { clean: '模型回答', repaired: '模型回答（修复一轮）', fallback: '兜底摘要（模型草稿未通过校验）', knowledge: '知识回答', deterministic: '规则摘要' };
 function synthesisWarnings(synthesis: AgentV2Response['synthesis']): string[] {
-  if (!synthesis) return [];
+  // A refusal or a clarification never drafted anything: synthesis is {} with no attempts.
+  if (!synthesis?.attempts) return [];
   return synthesis.attempts.filter(attempt => !attempt.ok).flatMap(attempt => {
     const stage = attempt.stage === 'draft' ? '草稿' : attempt.stage === 'repair' ? '修复稿' : '模型调用';
     return [...(attempt.warnings || []), ...(attempt.unknown_citations || []).map(id => `未知证据引用：${id}`), ...(attempt.ungrounded_numbers || []).map(value => `未落地数字：${value}`)].map(item => `${stage}被拒：${item}`);

@@ -139,7 +139,7 @@ export type AgentV2Response = {
   };
   elapsed_ms: number;
   error: string;
-  synthesis?: { outcome: string; draft: string; attempts: { stage: string; ok: boolean; warnings: string[]; unknown_citations: string[]; ungrounded_numbers: string[] }[] };
+  synthesis?: { outcome?: string; draft?: string; attempts?: { stage: string; ok: boolean; warnings: string[]; unknown_citations: string[]; ungrounded_numbers: string[] }[] };
   pending_mutation?: AgentPendingMutation | null;
   interface: 'web';
   policy: { web_requested: boolean; web_enabled: boolean; web_allowed: boolean; mutations_enabled?: boolean };
