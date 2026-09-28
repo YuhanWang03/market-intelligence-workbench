@@ -31,7 +31,7 @@ function synthesisWarnings(synthesis: AgentV2Response['synthesis']): string[] {
     return [...(attempt.warnings || []), ...(attempt.unknown_citations || []).map(id => `未知证据引用：${id}`), ...(attempt.ungrounded_numbers || []).map(value => `未落地数字：${value}`)].map(item => `${stage}被拒：${item}`);
   });
 }
-type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
+type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; sentAt?: number; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
 type Position = { symbol: string; current_price: number; market_value: number; unrealized_pl: number; unrealized_pl_pct: number };
 type PortfolioResponse = { account: { cash: number; portfolio_value: number; paper: boolean }; positions: Position[]; pnl: { intraday_pl_pct: number; portfolio_value: number; cash: number }; history?: { timestamp: number[]; equity: number[] } };
 type RiskResponse = { pnl: { daily_pnl_pct: number | null }; concentration: { top_1_pct: number; top_3_pct: number }; exposure: { largest_sector: string; largest_sector_pct: number }; drawdown: { current_drawdown_pct: number | null }; earnings_risk: { ticker: string; days_until: number }[] };
@@ -475,7 +475,7 @@ export default function Home() {
     let progressId: number | null = null;
     const controller = new AbortController();
     chatRequestRef.current = controller;
-    setMessages(items => [...items, { id: now, role: 'user', text, mode: requestMode }]);
+    setMessages(items => [...items, { id: now, role: 'user', text, mode: requestMode, sentAt: now }]);
     setChatInput('');
     setChatBusy(true);
     setChatProgress(`${CHAT_LABELS[requestMode]} 正在规划…`);
@@ -485,7 +485,7 @@ export default function Home() {
       if ('job_id' in response) {
         const initialJob = response;
         progressId = now + 1;
-        setMessages(items => [...items, { id: progressId as number, role: 'assistant', text: initialJob.progress || `${CHAT_LABELS[requestMode]} 任务已进入后台队列。`, meta: '执行进度 · 最长等待 15 分钟', mode: requestMode }]);
+        setMessages(items => [...items, { id: progressId as number, role: 'assistant', sentAt: Date.now(), text: initialJob.progress || `${CHAT_LABELS[requestMode]} 任务已进入后台队列。`, meta: '执行进度 · 最长等待 15 分钟', mode: requestMode }]);
         response = await waitForAgentJob(initialJob, controller.signal, job => {
           const progress = job.progress || `${CHAT_LABELS[requestMode]}：${job.agent_status}`;
           setChatProgress(progress);
@@ -496,6 +496,7 @@ export default function Home() {
       const finalMessage: ChatMessage = {
         id: progressId ?? now + 1,
         role: 'assistant',
+        sentAt: Date.now(),
         ...result,
         mode: requestMode,
         meta: `运行 ${response.run_id} · 上下文：${messageContext}${requestMode === 'agent_v3' ? '（已传递，事实由工具核验）' : ''}`,
@@ -526,7 +527,7 @@ export default function Home() {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       const detail = error instanceof Error ? error.message : 'unknown';
       const result = { text: `查询失败：${detail}。请检查 Web API、凭据或 owner token。` };
-      const errorMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', ...result, mode: requestMode, meta: `连接错误 · 上下文：${messageContext}` };
+      const errorMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', sentAt: Date.now(), ...result, mode: requestMode, meta: `连接错误 · 上下文：${messageContext}` };
       setMessages(items => progressId == null ? [...items, errorMessage] : items.map(item => item.id === progressId ? errorMessage : item));
       return result;
     } finally {
@@ -546,11 +547,11 @@ export default function Home() {
     setChatProgress(approve ? 'Agent V3 正在执行已确认的修改…' : 'Agent V3 正在取消…');
     try {
       const response = await confirmAgentV3Run(runId, sessionId, approve);
-      const confirmed: ChatMessage = { ...message, id: Date.now(), text: response.answer || response.error || '没有返回结果。', meta: `运行 ${response.run_id} · ${approve ? '已确认执行' : '已取消'}`, agent: { ...message.agent, status: response.status, pendingMutation: null, verified: response.status !== 'failed' && response.verification.ok, warnings: [...response.verification.warnings], capabilities: response.plan.tasks.map(task => task.capability), elapsedMs: response.elapsed_ms }, evidence: uniqueEvidence(response.evidence || []) };
+      const confirmed: ChatMessage = { ...message, id: Date.now(), sentAt: Date.now(), text: response.answer || response.error || '没有返回结果。', meta: `运行 ${response.run_id} · ${approve ? '已确认执行' : '已取消'}`, agent: { ...message.agent, status: response.status, pendingMutation: null, verified: response.status !== 'failed' && response.verification.ok, warnings: [...response.verification.warnings], capabilities: response.plan.tasks.map(task => task.capability), elapsedMs: response.elapsed_ms }, evidence: uniqueEvidence(response.evidence || []) };
       setMessages(items => [...items.map(item => item.id === message.id && item.agent ? { ...item, agent: { ...item.agent, pendingMutation: null }, meta: `${item.meta || ''} · ${approve ? '已确认' : '已取消'}` } : item), confirmed]);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'unknown';
-      setMessages(items => [...items, { id: Date.now(), role: 'assistant', text: `确认失败：${detail}。待确认的操作可能已过期，请重新提问。`, mode: 'agent_v3', meta: '连接错误' }]);
+      setMessages(items => [...items, { id: Date.now(), sentAt: Date.now(), role: 'assistant', text: `确认失败：${detail}。待确认的操作可能已过期，请重新提问。`, mode: 'agent_v3', meta: '连接错误' }]);
     } finally {
       setChatBusy(false);
       setChatProgress('');
@@ -624,7 +625,7 @@ export default function Home() {
         <div className="message-list" ref={messageListRef} aria-live="polite">
           {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。</span></div>}
           {messages.map(message => <div key={message.id} className={`message ${message.role}`}>
-            {message.role === 'user' && message.mode && <div className="message-mode">{CHAT_LABELS[message.mode]}</div>}
+            {(message.sentAt || (message.role === 'user' && message.mode)) && <div className="message-mode">{message.role === 'user' && message.mode && <span>{CHAT_LABELS[message.mode]}</span>}{message.sentAt && <time dateTime={new Date(message.sentAt).toISOString()} title={`美东 ${formatClockInZone(new Date(message.sentAt), 'America/New_York')}`}>{message.role === 'user' ? '发送' : '回答'} {formatClock(new Date(message.sentAt))}</time>}</div>}
             {message.agent && <div className="agent-badges"><span>{message.agent.status}</span>{message.agent.status === 'partial' && <span className="warning">数据或结论仍有缺口</span>}<span>{message.agent.route}</span><span>{message.agent.answerMode}</span>{Boolean(message.evidence?.length) && <span title="仅表示引用和数字可追溯，不代表数据口径一致或原因已确认" className={message.agent.verified ? 'verified' : 'warning'}>{message.agent.verified ? '引用与数字可追溯' : '引用或数字校验有警告'}</span>}{message.agent.synthesis && <span className={message.agent.synthesisFallback ? 'warning' : ''}>{message.agent.synthesis}</span>}{message.agent.rewritten && <span title={message.agent.rewritten}>接上文</span>}{message.agent.webAllowed && <span className="web">Web 已授权</span>}{message.agent.webRequested && !message.agent.webEnabled && <span className="warning">服务端未启用 Web</span>}<span>{(message.agent.elapsedMs / 1000).toFixed(1)}s</span></div>}
             <div className="message-body">{message.role === 'assistant' ? <AgentAnswer text={message.text} evidence={message.evidence} messageId={message.id}/> : message.text}</div>
             {message.image && <Image src={message.image} width={900} height={600} unoptimized alt="AI 查询生成的分析图表"/>}
