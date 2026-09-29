@@ -109,6 +109,42 @@ flowchart LR
 
 生产部署中，主后端和 Agent V3 使用不同的进程与端口。Agent V3 没有独立网页，它通过现有工作台和 Bot 被调用。
 
+## 两个 Agent 的工具、子流程与数据源
+
+两个 Agent 共用同一份能力目录（`v2/agent_v2/catalog.py`）和同一套适配器；每个能力把一个数据源的原始响应转换成带来源、时间和口径的 `EvidenceItem`，模型只看证据，不直接看供应商响应。V2 注册 28 个能力，V3 在此之上多 4 个组合类能力。实验室能力（`lab.*`）是实验，不是问答，评测时两边都不启用。
+
+| 能力 | 回答什么 | 数据来自 | V2 | V3 |
+| --- | --- | --- | :-: | :-: |
+| `account.portfolio` / `account.performance` / `account.risk` | 持仓、当日/本周/本月盈亏、集中度与回撤 | Alpaca 模拟账户 API | ✓ | ✓ |
+| `account.earnings_schedule` | 持仓与关注列表未来两周的财报日期 | Yahoo Finance 财报日历 | ✓ | ✓ |
+| `account.overview` / `account.ranking` / `account.position_analysis` | 全组合汇总、按浮亏排名、单只持仓自买入以来的逐日归因 | Alpaca 持仓与成交记录 + yfinance 复权日线 | | ✓ |
+| `market.performance` | 收盘价、多窗口回报、成交量、波动率、相对基准 | yfinance 日线（可切回 Financial Datasets） | ✓ | ✓ |
+| `market.drawdown` / `market.runup` | 一段下跌或上涨发生在何时：区间、高低点、极端交易日 | yfinance 日线 | ✓ | ✓ |
+| `market.explain_move` / `market.attribute_move` | 某一天涨跌的核实与候选原因 | yfinance + Tavily 新闻 + EDGAR 申报 + 盯盘记录 | ✓ | ✓ |
+| `market.anomaly_history` | 盯盘系统记录过的盘中异动 | 本地监控数据库 | ✓ | ✓ |
+| `research.stock` / `research.compare` / `research.changes` | 单股多维研究、同口径对比、两次研究快照的变化 | 研究引擎：SEC XBRL 财务数据、yfinance、FRED、Tavily | ✓ | ✓ |
+| `filings.recent` / `filings.read_events` | 近期申报列表；读取 8-K 等原文并摘出带日期的事件 | SEC EDGAR（edgartools） | ✓ | ✓ |
+| `institutional.manager_portfolio` | 基金经理最新 13F：报告期、前列持仓、季度增减仓 | SEC EDGAR 13F-HR，本地跟踪库缺失或不完整时直接读 EDGAR | ✓ | ✓ |
+| `etf.ark_activity` | ARK 基金当日持仓快照与相对上一份快照的变动 | ARK 官方每日持仓 CSV | ✓ | ✓ |
+| `etf.holdings` | 任意 ETF 的前列持仓与权重 | Yahoo Finance 基金持仓页 | | ✓ |
+| `macro.overview` / `macro.release` | 利率、VIX、美元、油金；CPI/PCE/NFP/GDP 等最新读数 | FRED | ✓ | ✓ |
+| `web.research` | 内部证据不足时的有界网页检索与原文核对 | Tavily 搜索与页面读取；需用户和服务端同时允许 | ✓ | ✓ |
+| `agent.investigate` | 给定任务、股票和工具的自由子智能体 | 上述工具的组合 | ✓ | ✓ |
+| `state.read` / `state.mutate` | 读关注列表与提醒；确认后的加关注、设提醒 | 本地 SQLite 状态库 | ✓ | ✓ |
+| `lab.screen` / `lab.backtest` / `lab.sweep` / `lab.event_study` / `lab.committee` | 筛选、回测、参数扫描、事件研究、投资人格委员会 | 本地引擎，基于 yfinance 历史数据 | ✓ | ✓ |
+
+**模型**：两个 Agent 的分类、规划、合成、修复和审阅都用 DeepSeek（`deepseek-v4-flash`，关闭思考模式），通过 OpenAI 兼容接口调用，可用 `AGENT_LLM_*` / `AGENT_V3_*` 换成任何兼容接口。评测裁判用 OpenAI GPT-4.1-mini 与 GPT-4.1，刻意与 Agent 不同厂商。
+
+**子流程**：本项目没有"skill"这一层。多步取证由子流程承担，它们只能用上表里的工具，输出固定 schema，并统一进入证据账本和校验：
+
+| | V2 | V3 |
+| --- | --- | --- |
+| 涨跌归因 | `move_attributor`：新闻、申报、盯盘记忆各查一轮 | `move_attributor` 专家节点 |
+| 申报阅读 | `filing_reader`：读原文、摘事件 | `filing_reader` 专家节点 |
+| 新闻核查 | `news_checker`：搜索、读正文、交叉比对 | `news_research` 子图：搜索、定位原文、来源交叉审 |
+| 对抗审阅 | `反方`子智能体：对已校验的答案提异议，修订稿须再过校验 | `debate` 节点：reviewer 提异议并区分严重程度，修订稿在节点内再校验 |
+| 自由调查 | `agent.investigate` | 同一能力 |
+
 ## Agent V2：证据优先的生产执行管线
 
 > 测评结论见文首；设计与运行说明见 [`v2/agent_v2/README.md`](v2/agent_v2/README.md)。
@@ -183,18 +219,7 @@ V2 根据语义意图路由，而不是依赖简单关键词匹配。请求会�
 
 ### 能力目录
 
-V2 通过统一能力目录调用实际工具，典型能力包括：
-
-- 账户、持仓、组合收益和风险
-- 个股研究、横向比较和变化检测
-- 市场表现、回撤、上涨和异常解释
-- SEC 文件、历史异常和机构 13F
-- ARK、宏观、新闻和产业链研究
-- 监控状态读取、价格提醒与受控写操作
-- 回测、事件研究和筛选
-- 有界的外部 Web 研究
-
-能力适配器负责把不同数据源转换为统一证据格式，避免模型直接依赖某个供应商的原始响应。
+V2 通过统一能力目录调用实际工具，能力、子流程和每个能力背后的数据源见上文[两个 Agent 的工具、子流程与数据源](#两个-agent-的工具子流程与数据源)。能力适配器负责把不同数据源转换为统一证据格式，避免模型直接依赖某个供应商的原始响应。
 
 ### 证据、校验与回答模式
 
