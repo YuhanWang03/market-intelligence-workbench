@@ -18,25 +18,33 @@ Agent V3 是 Market Intelligence Workbench 的 LangGraph 智能体运行时。�
 
 ```mermaid
 flowchart TD
-    A([START]) --> B[resolve_context]
-    B --> C[classify]
-    C --> D[plan]
-    D --> E{confirmation?}
-    E -- 等待确认 --> Z([END / 可恢复])
-    E -- 无需确认或已确认 --> F[execute]
-    F --> G[web_fallback]
-    G --> H[synthesize]
-    H --> I[verify]
-    I --> J{验证结果}
-    J -- 可修复 --> K[repair]
-    K --> I
-    J -- 证据不足 --> L[fallback]
-    J -- 需要对抗审阅 --> M[debate]
-    J -- 通过 --> N[finish]
-    L --> N
-    M --> N
-    N --> O([END])
+    A([START]) --> RC[resolve_context]
+    RC -- 页面记录解析失败 --> FIN
+    RC --> C[classify]
+    C -- 需要澄清 / 能力不可用 --> FIN
+    C -- 追问复述上一轮 --> S
+    C --> P[plan]
+    P -- 直接回答 / 能力缺失 --> FIN
+    P -- 含写操作 --> CF[confirmation：interrupt 等待确认]
+    CF -- 已确认 --> X
+    CF -- 取消或过期 --> FIN
+    P --> X[execute：DAG 调度]
+    X -- 失败 / 取消 --> FIN
+    X --> WF[web_fallback：条件满足才检索]
+    WF --> S[synthesize]
+    S -- 出错 --> FB
+    S --> V[verify]
+    V -- 未通过且未用尽修复次数 --> RP[repair]
+    RP --> V
+    V -- 出错或修复次数用尽 --> FB[fallback：列出已有证据]
+    V -- 通过且开启审阅 --> DB[debate：审阅并校验修订稿]
+    V -- 通过 --> FIN[finish]
+    FB --> FIN
+    DB --> FIN
+    FIN --> E([END])
 ```
+
+这张图与 `python -m v2.agent_v3 --graph` 生成的 `architecture.mmd` 一致，只是给条件边加了说明。对抗审阅只在校验通过之后运行；修订稿在 debate 节点内部再次校验，不通过就保留原答案并把异议作为提示附上。
 
 实际图定义位于 `graph.py`，仓库同时保留 `architecture.mmd` 便于查看结构。运行时状态使用经过校验的契约对象传递，而不是在节点之间共享任意字典。
 

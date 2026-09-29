@@ -119,26 +119,39 @@ Agent V2 的目标是：**先理解请求，再规划工具调用；先形成证
 
 ```mermaid
 flowchart TD
-    A([START]) --> B[resolve_context]
-    B --> C[classify]
-    C --> D[route_budget]
-    D --> E[plan]
-    E --> F{confirmation?}
-    F -- 等待确认 --> Z([END / 可恢复])
-    F -- 无需确认或已确认 --> G[execute]
-    G --> H{evidence sufficient?}
-    H -- 否且允许 --> I[web_fallback]
-    H -- 是 --> J[synthesize]
-    I --> J
-    J --> K[verify]
-    K --> L{验证结果}
-    L -- 可修复 --> M[bounded_repair / debate]
-    M --> K
-    L -- 证据不足 --> N[structured_fallback]
-    L -- 通过 --> O[finish]
-    N --> O
-    O --> P([END])
+    A([请求]) --> P0[待确认写操作 / 澄清回复处理]
+    P0 -- 「确认」--> X[execute]
+    P0 --> C[classify：意图分类]
+    C -- 无法确定对象 --> ASK([反问用户 · waiting_clarification])
+    C --> R[route：路线与能力包]
+    R --> PL[plan：任务与预算等级]
+    PL -- 帮助 / 常识 --> D([直接回答])
+    PL -- 含写操作 --> W([记入待确认 · waiting_confirmation])
+    PL --> X
+    X --> WF{证据不足且允许 Web？}
+    WF -- 是 --> WEB[web.research 兜底]
+    WF -- 否 --> S
+    WEB --> S
+    subgraph S [synthesize：合成器内部]
+        direction TB
+        S1[草稿] --> S2{校验}
+        S2 -- 不通过 --> S3[修复稿 · 最多两轮]
+        S3 --> S2
+        S2 -- 两轮都不过 --> S4[确定性证据摘要]
+    end
+    S --> V[verify：引用与数字校验]
+    V --> G{研究类结果？}
+    G -- 否 --> F([finish])
+    G -- 是 --> DB[debate：反方审阅]
+    DB -- 无异议 --> F
+    DB -- 有异议 --> RV[revise：修订稿]
+    RV --> V2{修订稿校验}
+    V2 -- 通过 --> F
+    V2 -- 不通过 --> KEEP[保留原答案 · 异议作提示]
+    KEEP --> F
 ```
+
+图中的修复循环在合成器内部完成，编排器随后再校验一次；对抗审阅只在校验通过之后运行，修订稿必须再次通过校验才会替换原答案。
 
 ### 稳定契约
 
@@ -226,25 +239,33 @@ Agent V3 不是给 V2 换一个提示词，而是一套独立的 LangGraph 执�
 
 ```mermaid
 flowchart TD
-    A([START]) --> B[resolve_context]
-    B --> C[classify]
-    C --> D[plan]
-    D --> E{confirmation?}
-    E -- 等待确认 --> Z([END / 可恢复])
-    E -- 无需确认或已确认 --> F[execute]
-    F --> G[web_fallback]
-    G --> H[synthesize]
-    H --> I[verify]
-    I --> J{验证结果}
-    J -- 可修复 --> K[repair]
-    K --> I
-    J -- 证据不足 --> L[fallback]
-    J -- 需要对抗审阅 --> M[debate]
-    J -- 通过 --> N[finish]
-    L --> N
-    M --> N
-    N --> O([END])
+    A([START]) --> RC[resolve_context]
+    RC -- 页面记录解析失败 --> FIN
+    RC --> C[classify]
+    C -- 需要澄清 / 能力不可用 --> FIN
+    C -- 追问复述上一轮 --> S
+    C --> P[plan]
+    P -- 直接回答 / 能力缺失 --> FIN
+    P -- 含写操作 --> CF[confirmation：interrupt 等待确认]
+    CF -- 已确认 --> X
+    CF -- 取消或过期 --> FIN
+    P --> X[execute：DAG 调度]
+    X -- 失败 / 取消 --> FIN
+    X --> WF[web_fallback：条件满足才检索]
+    WF --> S[synthesize]
+    S -- 出错 --> FB
+    S --> V[verify]
+    V -- 未通过且未用尽修复次数 --> RP[repair]
+    RP --> V
+    V -- 出错或修复次数用尽 --> FB[fallback：列出已有证据]
+    V -- 通过且开启审阅 --> DB[debate：审阅并校验修订稿]
+    V -- 通过 --> FIN[finish]
+    FB --> FIN
+    DB --> FIN
+    FIN --> E([END])
 ```
+
+这张图与 `python -m v2.agent_v3 --graph` 生成的 `architecture.mmd` 一致，只是给条件边加了说明。对抗审阅只在校验通过之后运行；修订稿在 debate 节点内部再次校验，不通过就保留原答案并把异议作为提示附上。
 
 每个节点都读写经过 Pydantic 校验的 JSON 状态。页面上下文、选中的异常、价格提醒、市场状态和会话引用会在进入分类与规划之前完成解析。
 

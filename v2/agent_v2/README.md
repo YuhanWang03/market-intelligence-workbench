@@ -18,26 +18,39 @@ Agent V2 是 Market Intelligence Workbench 当前默认的证据优先执行管�
 
 ```mermaid
 flowchart TD
-    A([START]) --> B[resolve_context]
-    B --> C[classify]
-    C --> D[route_budget]
-    D --> E[plan]
-    E --> F{confirmation?}
-    F -- 等待确认 --> Z([END / 可恢复])
-    F -- 无需确认或已确认 --> G[execute]
-    G --> H{evidence sufficient?}
-    H -- 否且允许 --> I[web_fallback]
-    H -- 是 --> J[synthesize]
-    I --> J
-    J --> K[verify]
-    K --> L{验证结果}
-    L -- 可修复 --> M[bounded_repair / debate]
-    M --> K
-    L -- 证据不足 --> N[structured_fallback]
-    L -- 通过 --> O[finish]
-    N --> O
-    O --> P([END])
+    A([请求]) --> P0[待确认写操作 / 澄清回复处理]
+    P0 -- 「确认」--> X[execute]
+    P0 --> C[classify：意图分类]
+    C -- 无法确定对象 --> ASK([反问用户 · waiting_clarification])
+    C --> R[route：路线与能力包]
+    R --> PL[plan：任务与预算等级]
+    PL -- 帮助 / 常识 --> D([直接回答])
+    PL -- 含写操作 --> W([记入待确认 · waiting_confirmation])
+    PL --> X
+    X --> WF{证据不足且允许 Web？}
+    WF -- 是 --> WEB[web.research 兜底]
+    WF -- 否 --> S
+    WEB --> S
+    subgraph S [synthesize：合成器内部]
+        direction TB
+        S1[草稿] --> S2{校验}
+        S2 -- 不通过 --> S3[修复稿 · 最多两轮]
+        S3 --> S2
+        S2 -- 两轮都不过 --> S4[确定性证据摘要]
+    end
+    S --> V[verify：引用与数字校验]
+    V --> G{研究类结果？}
+    G -- 否 --> F([finish])
+    G -- 是 --> DB[debate：反方审阅]
+    DB -- 无异议 --> F
+    DB -- 有异议 --> RV[revise：修订稿]
+    RV --> V2{修订稿校验}
+    V2 -- 通过 --> F
+    V2 -- 不通过 --> KEEP[保留原答案 · 异议作提示]
+    KEEP --> F
 ```
+
+图中的修复循环在合成器内部完成，编排器随后再校验一次；对抗审阅只在校验通过之后运行，修订稿必须再次通过校验才会替换原答案。
 
 ## 主要目录与文件
 
