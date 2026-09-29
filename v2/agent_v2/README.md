@@ -10,7 +10,7 @@ Agent V2 是 Market Intelligence Workbench 当前默认的证据优先执行管�
 - 先收集可追溯证据，再生成结论。
 - 将路由、计划、工具执行、证据、合成和校验拆成清晰契约。
 - 在 Web 与 Telegram 之间复用同一核心逻辑。
-- 对数据缺失、来源冲突和工具失败进行显式降级。
+- 对数据缺失、工具失败和同一证据 id 下的不同说法进行显式降级；不做跨工具的数值比对。
 - 写操作默认关闭；需要修改状态时先生成待确认操作。
 - Web 搜索兜底使用服务端和请求级双重开关。
 
@@ -62,11 +62,13 @@ flowchart TD
 | `execution.py` | 能力注册、依赖执行和结果收集 |
 | `catalog.py` | 可用能力及参数定义 |
 | `adapters/` | 研究、行情、历史、实验室和 Web 等能力适配器 |
-| `agents/` | 新闻核验、文件阅读、异动归因和辩论等受限子流程 |
-| `evidence.py` / `verification.py` | 证据账本、引用与数字校验 |
+| `agents/` | 四个受限子流程：`move_attributor` 异动归因、`filing_reader` 申报阅读、`news_checker` 新闻核验、`debater` 反方审阅 |
+| `evidence.py` / `verification.py` | 证据账本、引用与数字校验；`normalize_citations` 纠正模型写错前缀的证据 id |
+| `judge.py` | 可选的模型裁判，判断一句话是否真的断言了它引用的事实 |
+| `memory.py` | 跨会话的用户偏好记忆（“回答短一点”这类反馈） |
 | `llm.py` / `synthesis.py` | 模型规划、回答合成与修复 |
 | `session.py` / `session_store.py` | 会话上下文、记忆与持久化 |
-| `runtime.py` | 离线、实时和工作台运行时的组装入口 |
+| `runtime.py` / `warmup.py` | 离线、实时和工作台运行时的组装入口；服务启动时的预热 |
 | `interfaces/` | Web 与 Telegram 输出适配 |
 | `eval/` | 离线用例、固定夹具和评测脚手架；不是已完成的正式测评报告 |
 

@@ -60,14 +60,19 @@ flowchart TD
 | `runtime.py` | 工作台数据源、模型、持久化和图运行时组装 |
 | `persistence.py` / `jobs.py` | checkpoint、会话、后台任务和恢复 |
 | `context.py` / `page_context.py` | 会话和网页上下文解析 |
-| `research.py` / `market.py` / `sec.py` | 研究、行情和 SEC 证据处理 |
+| `research.py` / `market.py` / `sec.py` | 研究、行情和 SEC 申报证据处理 |
+| `adapters.py` | 账户、关注列表与提醒的读取，以及确认后的写操作（`state.mutate`，回答由存储结果直接生成） |
+| `data_extensions.py` / `fomc.py` | FRED 宏观面板与发布数据、ETF 持仓（Yahoo）、FOMC 声明 |
+| `financial_facts.py` | SEC XBRL 公司财务事实，带财务期间的字段级证据 |
+| `monitor_history.py` | 盯盘系统记录的盘中异动，供归因与新闻问题引用 |
+| `availability.py` / `source_scope.py` | 能力不可用时的回答，以及来源范围（网页 / 申报 / 盯盘）的说明 |
 | `portfolio_*.py` | 组合概览、风险分析和验收支持 |
 | `institutional.py` | 基金经理 13F 持仓：别名解析、字段级证据、季度增减仓 |
 | `ark.py` | ARK 基金每日持仓：快照摘要、前列持仓、相对上一份快照的变动 |
 | `earnings.py` | 持仓与关注列表的财报日历：窗口内每个发布日期一条证据 |
 | `news_research.py` / `specialists.py` | 新闻检索及受 schema 约束的专家流程 |
 | `tests/` | 单元、契约、边界和回归测试 |
-| `*_acceptance.py` / `*_eval.py` / `live_smoke.py` | 开发期验收和评测脚手架；不是正式测评报告 |
+| `*_acceptance.py` / `*_eval.py` / `live_smoke.py` / `debate_trial.py` / `demo.py` | 开发期验收、冒烟、对抗审阅试跑和离线演示；不是测评 |
 
 ## 环境与运行
 
@@ -133,7 +138,7 @@ POST /api/agent-v3/runs/{run_id}/confirm   # {"session_id": ..., "approve": true
 .venv-agent-v3/bin/python -m pytest v2/agent_v3/tests v2/agent_common -q -p no:cacheprovider
 ```
 
-`quality_eval.py` 使用固定合成证据检查部分输出约束，`live_smoke.py` 检查真实运行链路是否可用，`acceptance.py` 和其他 acceptance 脚本检查特定业务路径。`debate_trial.py` 对同一批研究题分别在开启与关闭对抗审阅时各跑一次，记录 debate 节点是否执行、跳过原因、异议内容与修订稿是否通过校验（结果中的 `synthesis.debate` 字段）；它需要真实模型，产出的是观察记录而不是分数。这些工具的存在不表示正式测评已经完成；部分脚本也在源码中明确声明其结果不是质量分数。
+`quality_eval.py` 使用固定合成证据检查部分输出约束，`live_smoke.py` 检查真实运行链路是否可用，`acceptance.py` 和其他 acceptance 脚本检查特定业务路径。`debate_trial.py` 对同一批研究题分别在开启与关闭对抗审阅时各跑一次，记录 debate 节点是否执行、跳过原因、异议内容与修订稿是否通过校验（结果中的 `synthesis.debate` 字段）；它需要真实模型，产出的是观察记录而不是分数。这些都是开发期工具，不产出质量分数；测评在 `v2/agent_bench` 完成。
 
 与 V2 的对比测评在 [`v2/agent_bench/`](../agent_bench/README.md) 完成，两者使用相同的模型、问题集、冻结数据、搜索权限、工具预算、超时设置和评分标准。checkpoint 恢复、依赖失败传播、写操作确认和长任务取消只有单元测试和故障注入题覆盖，尚未作为独立指标纳入测评。
 
@@ -148,4 +153,4 @@ POST /api/agent-v3/runs/{run_id}/confirm   # {"session_id": ..., "approve": true
 
 ## 与 Agent V2 的关系
 
-V3 复用 `v2/agent_common/` 中的共享语义和部分经过验证的能力适配，但拥有独立的图执行器、会话、任务和持久化机制。V2 仍是网页默认选择，V3 是可选的复杂任务路径。版本号只代表架构迭代，不代表质量排名；在正式测评完成前，两个系统都应视为仍在开发中的研究助手。
+V3 复用 `v2/agent_common/` 中的共享语义和 V2 的能力适配，但拥有独立的图执行器、会话、任务和持久化机制。V2 仍是网页默认选择，V3 是可选的复杂任务路径。统一条件下的对比测评表明两者水平相当：V3 强在字段级证据与口径，V2 强在覆盖面。版本号只代表架构迭代，不代表质量排名。
