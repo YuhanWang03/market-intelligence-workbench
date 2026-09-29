@@ -4591,3 +4591,12 @@ def test_an_empty_synthesizer_reply_is_asked_for_once_more_before_the_fallback()
     with pytest.raises(ValueError):
         twice._draft([{"role": "user", "content": "x"}], [], [])
     assert len(twice.llm.calls) == 2
+
+
+def test_a_legacy_id_the_model_prefixed_with_evidence_is_cited_as_itself():
+    from v2.agent_v2.verification import normalize_citations
+    from v2.agent_v2.models import EvidenceItem
+
+    evidence = [EvidenceItem(id="legacy-3d30b41d", entity="account", claim="组合价值 $101,040", source_id="account.portfolio"), EvidenceItem(id="evidence-market-price-1", entity="NVDA", claim="收盘 228.86", source_id="market_data")]
+    text = "组合价值 $101,040 [evidence-legacy-3d30b41d]，NVDA 收 228.86 [evidence-market-price-1]，另见 [evidence-unknown-9]。"
+    assert normalize_citations(text, evidence) == "组合价值 $101,040 [legacy-3d30b41d]，NVDA 收 228.86 [evidence-market-price-1]，另见 [evidence-unknown-9]。"

@@ -37,11 +37,31 @@ from v2.agent_v2.models import AnswerMode, EvidenceItem, ToolEnvelope, Verificat
 SOFT_PREFIX = "（提示）"
 
 _CITATION = re.compile(r"\[([A-Za-z0-9_.:-]+)\]")
+_CITATION_TOKEN = re.compile(r"\[([A-Za-z0-9_.:-]+)\]")
 _SENTENCE = re.compile(r"[^。！？!?\n]+(?:[。！？!?]+|$)(?:\s*\[[A-Za-z0-9_.:-]+\])*")
 
 
 #: ``judge(items) -> {id: quote}``: which of the ``{"id", "text", "claim"}`` items assert their claim.
 Judge = Callable[[list[dict[str, str]]], dict[str, str]]
+
+
+def normalize_citations(answer: str, evidence: list[EvidenceItem]) -> str:
+    """``[evidence-legacy-x]`` becomes ``[legacy-x]`` when only the latter exists.
+
+    Most V2 evidence ids begin with ``evidence-``; a model that has seen a
+    hundred of them prefixes the legacy card ids the same way, and every
+    draft was then rejected for unknown citations and the raw card shown.
+    """
+    known = {item.id for item in evidence}
+
+    def fix(match: re.Match) -> str:
+        cited = match.group(1)
+        if cited in known:
+            return match.group(0)
+        bare = cited[len("evidence-"):] if cited.startswith("evidence-") else "evidence-" + cited
+        return f"[{bare}]" if bare in known else match.group(0)
+
+    return _CITATION_TOKEN.sub(fix, answer or "")
 
 
 def verify_answer(

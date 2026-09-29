@@ -38,3 +38,24 @@ def test_wants_synonyms_fold_onto_known_objectives():
 def test_wants_with_nothing_recognisable_still_fail():
     with pytest.raises(ValidationError):
         SemanticIntent.model_validate({"kind": "research", "tickers": ["NVDA"], "wants": ["made_up"]})
+
+
+def test_a_confirmed_write_answers_with_what_changed_not_the_evidence_fallback():
+    from types import SimpleNamespace
+    from v2.agent_v3.adapters import register_user_state
+    from v2.agent_v3.tools import Registry
+    from v2.agent_v2.catalog import default_catalog
+
+    store = SimpleNamespace(watchlist_list=lambda: [], alert_list=lambda fired: [], settings_all=lambda: {},
+                            watchlist_add=lambda ticker, note="": ticker == "AMD", watchlist_remove=lambda ticker: False,
+                            alert_add=lambda ticker, direction, price: 7, alert_remove=lambda alert_id: False)
+    registry = Registry(default_catalog())
+    register_user_state(registry, state_source=store, enable_mutations=True)
+    mutate = registry.handlers["state.mutate"]
+    ctx = SimpleNamespace(run_id="test-run")
+    added = mutate({"operation": "watchlist.add", "payload": {"ticker": "AMD"}}, ctx)
+    assert added.metadata["deterministic_answer"].startswith("已将 AMD 加入关注列表。 [v3-business-")
+    present = mutate({"operation": "watchlist.add", "payload": {"ticker": "NVDA"}}, ctx)
+    assert present.metadata["deterministic_answer"].startswith("NVDA 已在关注列表中，无需重复添加。")
+    alert = mutate({"operation": "alert.add", "payload": {"ticker": "NVDA", "direction": "below", "target_price": 150.0}}, ctx)
+    assert alert.metadata["deterministic_answer"].startswith("已为 NVDA 设置价格提醒：跌到 150.0 美元（提醒编号 7）。")

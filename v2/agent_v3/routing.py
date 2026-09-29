@@ -28,6 +28,9 @@ DEDICATED_WANTS = frozenset({"earnings", "macro", "macro_release", "guru", "ark"
 #: Wants the overview cannot answer: they need a per-position or per-day tool.
 NOT_OVERVIEW_WANTS = frozenset({"ranking", "attribution", "drawdown", "runup", "news"})
 MOVE_WANTS = frozenset({"attribution", "drawdown", "runup"})
+#: Topics answered by exactly one tool, whatever else the question mentions.
+TOPIC_TOOLS = {"guru": "institutional.manager_portfolio", "ark": "etf.ark_activity", "macro": "macro.overview", "macro_release": "macro.release"}
+TOPIC_WANTS = frozenset(TOPIC_TOOLS)
 INDEX_PROXIES = ("SPY", "QQQ", "DIA")
 
 
@@ -161,6 +164,7 @@ class Rule:
     when: Callable[[Facts], bool]
     build: Callable[[Facts], "tuple[PlanTask, ...] | None"]
     needs: tuple[str, ...] = ()  # skipped unless all are registered
+    keep: "Callable[[Facts], frozenset] | None" = None  # with no build result: keep only these capabilities of the shared plan, and treat that as final
     frame: "Callable[[Facts], dict] | None" = None
     keep_plan_flags: bool = False  # True: leave assumptions / web fallback as the shared planner set them
 
@@ -227,7 +231,11 @@ RULES: tuple[Rule, ...] = (
     Rule("account_earnings", "我的持仓里谁要发财报", lambda f: f.whole_portfolio and "earnings" in f.wants,
          lambda f: (PlanTask("account-earnings", "account.earnings_schedule", {"days": 14}, purpose="upcoming earnings across holdings and watchlist"),), needs=("account.earnings_schedule",)),
     Rule("account_pnl", "我今天赚了还是亏了", lambda f: f.whole_portfolio and not (f.wants & ({"ranking", "risk"} | DEDICATED_WANTS)) and (bool(f.intent.periods) or f.wants == {"performance"}), _pnl, needs=("account.performance",)),
-    Rule("dedicated_topic", "带了“我的”的宏观 / 大师持仓 / 关注列表 / 简报问题", lambda f: f.whole_portfolio and bool(f.wants & DEDICATED_WANTS), lambda f: None, keep_plan_flags=True),
+    # "木头姐最近买了什么" / "巴菲特的持仓" / "美债收益率": the topic tool alone. Left to the model planner,
+    # such a question once gained macro.overview and account.risk and answered with CPI figures.
+    Rule("topic_lookup", "木头姐买了什么 / 巴菲特的持仓 / 最近一次 CPI", lambda f: not f.tickers and bool(f.wants & TOPIC_WANTS), lambda f: None,
+         keep=lambda f: frozenset(TOPIC_TOOLS[want] for want in f.wants & TOPIC_WANTS), keep_plan_flags=True),
+    Rule("dedicated_topic", "带了“我的”的关注列表 / 提醒 / 简报 / 仓位问题", lambda f: f.whole_portfolio and bool(f.wants & DEDICATED_WANTS), lambda f: None, keep_plan_flags=True),
     Rule("portfolio_overview", "我的组合怎么样 / 最大的风险是什么", lambda f: f.whole_portfolio and f.intent.kind in {"research", "lookup"} and not (f.wants & NOT_OVERVIEW_WANTS), _overview, needs=("account.overview",)),
     Rule("company_overview", "NVDA 怎么样", lambda f: bool(f.tickers) and bool(f.wants & {"overview", "full"}) and f.intent.kind == "research", _company),
     Rule("ticker_news", "ARM 最近有什么新闻", lambda f: bool(f.tickers) and f.wants == {"news"}, _news),
@@ -249,6 +257,10 @@ def apply_rule(deterministic: ExecutionPlan, rule: Rule, facts: Facts) -> Execut
     """The shared plan with this rule's tasks; the rule's name travels in ``frame`` so a run shows which one fired."""
     tasks = rule.build(facts)
     frame = {**deterministic.frame, **(rule.frame(facts) if rule.frame else {}), "route_rule": rule.name}
+    if tasks is None and rule.keep is not None:
+        wanted = rule.keep(facts)
+        kept = tuple(task for task in deterministic.tasks if task.capability in wanted)
+        return replace(deterministic, tasks=kept or deterministic.tasks, frame=frame)
     if tasks is None:
         return replace(deterministic, frame=frame)
     if rule.keep_plan_flags:

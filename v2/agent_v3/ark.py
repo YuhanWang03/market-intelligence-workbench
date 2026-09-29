@@ -155,7 +155,9 @@ def activity_envelope(symbol: str, snapshot_date: str, rows: list[dict], prior: 
             kind = "新建仓" if change["is_new"] else ("清仓" if change["is_exit"] else ("加仓" if change["shares_diff"] > 0 else "减仓"))
             pct = round(float(change["shares_diff_pct"]) * 100, 2)
             weight_diff = round(float(change["weight_diff_pp"]), 2)
-            body = f"{kind} {change['ticker']}（{change.get('company') or ''}）：股数变动 {float(change['shares_diff']):+,.0f} 股" + (f"（{pct:+}%）" if not change["is_new"] else "") + f"，权重变动 {weight_diff:+} 个百分点。"
+            current = next((r for r in rows if r.get("ticker") == change["ticker"]), None)
+            value_text = f"，当前市值 {float(current['market_value']):,.0f} 美元" if current and not change["is_exit"] else ""
+            body = f"{kind} {change['ticker']}（{change.get('company') or ''}）：股数变动 {float(change['shares_diff']):+,.0f} 股" + (f"（{pct:+}%）" if not change["is_new"] else "") + f"，权重变动 {weight_diff:+} 个百分点{value_text}。"
             evidence.append(EvidenceItem(
                 f"ark-{symbol}-{snapshot_date}-chg-{change['ticker']}", symbol,
                 f"{symbol} {snapshot_date} 相比 {prior_date} {body}",

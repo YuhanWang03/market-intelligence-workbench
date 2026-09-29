@@ -153,3 +153,17 @@ def test_a_command_is_never_answered_by_a_clarification_that_claims_it_ran():
     assert applied == ["command_over_clarification"] and out.command is not None and out.clarification == ""
     trade, applied = normalize_intent(_intent(kind="help", tickers=["INTC"], clarification="我只能管理关注列表和提醒，不能下单交易。"))
     assert "command_over_clarification" not in applied and trade.clarification  # a refusal keeps its question
+
+
+@pytest.mark.parametrize("intent, capability", [
+    ({"wants": ["ark"], "ark_etfs": ["ARKK"]}, "etf.ark_activity"),
+    ({"wants": ["ark", "positioning"], "ark_etfs": ["ARKK"], "portfolio_scope": True}, "etf.ark_activity"),
+    ({"wants": ["guru"], "managers": ["buffett"]}, "institutional.manager_portfolio"),
+    ({"wants": ["macro"]}, "macro.overview"),
+    ({"wants": ["macro_release"], "release": "cpi"}, "macro.release"),
+])
+def test_a_topic_question_keeps_only_its_topic_tool_and_is_final(intent, capability):
+    # "木头姐最近买了什么" once reached the model planner, gained macro.overview and account.risk, and answered with CPI figures.
+    plan, final = _plan(kind="lookup", **intent)
+    assert plan.frame["route_rule"] == "topic_lookup" and final
+    assert _capabilities(plan) == [capability]

@@ -109,7 +109,18 @@ def register_user_state(registry, *, state_source=None, enable_mutations=False):
             "alert.remove": lambda: state.alert_remove(payload["alert_id"]),
         }
         value = actions[operation]()
-        return structured_envelope("state.mutate", {"operation": operation, "payload": payload, "result": value}, ctx, subject=operation)
+        envelope = structured_envelope("state.mutate", {"operation": operation, "payload": payload, "result": value}, ctx, subject=operation)
+        # The answer to a confirmed write is a fact about the store, not a draft: say what changed.
+        ticker = str(payload.get("ticker") or "")
+        sentences = {
+            "watchlist.add": f"已将 {ticker} 加入关注列表。" if value else f"{ticker} 已在关注列表中，无需重复添加。",
+            "watchlist.remove": f"已将 {ticker} 移出关注列表。" if value else f"{ticker} 不在关注列表中，没有需要移除的记录。",
+            "alert.add": f"已为 {ticker} 设置价格提醒：{'涨到' if payload.get('direction') == 'above' else '跌到'} {payload.get('target_price')} 美元（提醒编号 {value}）。",
+            "alert.remove": f"已取消提醒 #{payload.get('alert_id')}。" if value else f"没有找到提醒 #{payload.get('alert_id')}，可能已经触发或被取消。",
+        }
+        cite = f" [{envelope.evidence[0].id}]" if envelope.evidence else ""
+        envelope.metadata["deterministic_answer"] = sentences.get(operation, f"已执行 {operation}。") + cite
+        return envelope
     registry.register("state.read", read)
     if enable_mutations:
         registry.register("state.mutate", mutate)

@@ -489,10 +489,11 @@ class LLMEvidenceSynthesizer:
             if plan.answer_mode == AnswerMode.GENERAL_KNOWLEDGE:
                 self.last_outcome = "knowledge"
                 return answer
-            from v2.agent_v2.verification import verify_answer
+            from v2.agent_v2.verification import normalize_citations, verify_answer
 
             answer = self._complete(answer, evidence, results)
             self._keep_draft(answer)
+            answer = normalize_citations(answer, evidence)
             report = verify_answer(answer, evidence, answer_mode=plan.answer_mode, results=results, judge=self.judge)
             self._record_report("draft", report)
             if report.ok:
@@ -512,6 +513,7 @@ class LLMEvidenceSynthesizer:
             )
             repair = self._complete(repair, evidence, results)
             self._keep_draft(repair)
+            repair = normalize_citations(repair, evidence)
             repair_report = verify_answer(repair, evidence, answer_mode=plan.answer_mode, results=results, judge=self.judge)
             self._record_report("repair", repair_report)
             if repair_report.ok:
@@ -533,6 +535,7 @@ class LLMEvidenceSynthesizer:
                 )
                 second = self._complete(second, evidence, results)
                 self._keep_draft(second)
+                second = normalize_citations(second, evidence)
                 second_report = verify_answer(second, evidence, answer_mode=plan.answer_mode, results=results, judge=self.judge)
                 self._record_report("repair2", second_report)
                 if second_report.ok:
@@ -549,7 +552,7 @@ class LLMEvidenceSynthesizer:
         limit = short_answer_limit(preferences or [])
         if not limit or visible_length(answer) <= limit:
             return answer
-        from v2.agent_v2.verification import verify_answer
+        from v2.agent_v2.verification import normalize_citations, verify_answer
 
         try:
             short = self._draft(
@@ -562,6 +565,7 @@ class LLMEvidenceSynthesizer:
                 evidence,
             )
             short = self._complete(short, evidence, results)
+            short = normalize_citations(short, evidence)
             report = verify_answer(short, evidence, answer_mode=plan.answer_mode, results=results, judge=self.judge)
             self._record_report("shorten", report)
             if report.ok and visible_length(short) <= limit * 1.2:
@@ -594,7 +598,7 @@ class LLMEvidenceSynthesizer:
 
         if self.llm is None or not objections or not (answer or "").strip():
             return None
-        from v2.agent_v2.verification import verify_answer
+        from v2.agent_v2.verification import normalize_citations, verify_answer
 
         listed = "\n".join(f"- 针对“{row.get('claim') or ''}”：{row.get('objection') or ''}（证据 [{row.get('evidence_id') or ''}]）" for row in objections[:3])
         instruction = (
@@ -610,6 +614,7 @@ class LLMEvidenceSynthesizer:
         ]
         try:
             revised = self._complete(self._draft(messages, results, evidence), evidence, results)
+            revised = normalize_citations(revised, evidence)
             report = verify_answer(revised, evidence, answer_mode=plan.answer_mode, results=results, judge=self.judge)
         except (LLMError, ValueError, TypeError) as exc:
             self._record_attempt("revision_error", ok=False, warnings=(f"{type(exc).__name__}: {str(exc)[:200]}",))
