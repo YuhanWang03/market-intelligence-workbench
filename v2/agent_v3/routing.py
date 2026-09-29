@@ -58,6 +58,24 @@ def command_over_clarification(intent, context):
     return intent.model_copy(update={"clarification": ""})
 
 
+def ark_funds(intent, context):
+    """An ARK question names its funds in ark_etfs: at most two, ARKK when none was named, never as tickers.
+
+    "木头姐最近买了什么" once listed six funds and ran six activity reads
+    (168 evidence items); the draft then failed and the fallback printed
+    the whole ARKK holdings table.
+    """
+    if "ark" not in intent.wants and not intent.ark_etfs and not any(t.startswith("ARK") for t in intent.tickers):
+        return intent
+    funds = [*intent.ark_etfs, *(t for t in intent.tickers if t.startswith("ARK"))]
+    funds = list(dict.fromkeys(funds))[:2] or ["ARKK"]
+    tickers = [t for t in intent.tickers if not t.startswith("ARK")]
+    wants = intent.wants if "ark" in intent.wants else [*intent.wants, "ark"]
+    if funds == list(intent.ark_etfs) and tickers == list(intent.tickers) and wants == intent.wants:
+        return intent
+    return intent.model_copy(update={"ark_etfs": funds, "tickers": tickers, "wants": wants})
+
+
 def broad_market(intent, context):
     """美股大盘: the index ETFs plus the macro board. A macro reading or a briefing is not a quote, so those keep their own plan."""
     if intent.market_scope != "us_broad" or set(intent.wants) & {"macro", "briefing", "macro_release", "positioning"}:
@@ -113,7 +131,7 @@ def default_date_window(intent, context):
     return intent.model_copy(update={"date_window": DateWindow(start=(context.today - timedelta(days=days - 1)).isoformat(), end=context.today.isoformat(), basis="event" if move else "publication")})
 
 
-NORMALIZERS: tuple[Normalizer, ...] = (command_over_clarification, broad_market, explain_selected_position, rerank_portfolio, lab_request, open_company_question, news_only, default_date_window)
+NORMALIZERS: tuple[Normalizer, ...] = (command_over_clarification, ark_funds, broad_market, explain_selected_position, rerank_portfolio, lab_request, open_company_question, news_only, default_date_window)
 
 
 def normalize_intent(intent, context: IntentContext | None = None):

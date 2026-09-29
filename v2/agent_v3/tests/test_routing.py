@@ -167,3 +167,14 @@ def test_a_topic_question_keeps_only_its_topic_tool_and_is_final(intent, capabil
     plan, final = _plan(kind="lookup", **intent)
     assert plan.frame["route_rule"] == "topic_lookup" and final
     assert _capabilities(plan) == [capability]
+
+
+def test_an_ark_question_names_at_most_two_funds_and_defaults_to_arkk():
+    six, applied = normalize_intent(_intent(wants=["ark"], ark_etfs=["ARKK", "ARKW", "ARKG", "ARKF", "ARKQ", "ARKX"]))
+    assert "ark_funds" in applied and six.ark_etfs == ["ARKK", "ARKW"]
+    bare, _ = normalize_intent(_intent(kind="research", wants=["ark"]))
+    assert bare.ark_etfs == ["ARKK"]
+    as_tickers, _ = normalize_intent(_intent(wants=["performance"], tickers=["ARKK", "TSLA"]))
+    assert as_tickers.ark_etfs == ["ARKK"] and as_tickers.tickers == ["TSLA"] and "ark" in as_tickers.wants
+    plan, final = _plan(kind="lookup", wants=["ark"], ark_etfs=["ARKK"])
+    assert final and _capabilities(plan) == ["etf.ark_activity"]

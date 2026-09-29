@@ -394,7 +394,9 @@ class AgentV3:
         limitations = list(dict.fromkeys(note for result in state.get("results", []) for note in result.get("limitations", [])))
         if limitations:
             answer += "\n限制：\n" + "\n".join(f"- {note}" for note in limitations)
-        return {"answer": answer, "fallback": True, "report": {"ok": False, "warnings": ["Deterministic evidence summary; model answer unavailable or rejected"]}}
+        # Why the draft was not used is part of the record, not a silent detail.
+        why = str(state.get("error") or "")
+        return {"answer": answer, "fallback": True, "report": {"ok": False, "warnings": ["Deterministic evidence summary; model answer unavailable or rejected", *([f"模型合成失败：{why[:300]}"] if why else [])]}}
 
     def _debate(self, state, run):
         """Adversarial review of an already verified answer.
