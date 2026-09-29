@@ -18,7 +18,7 @@ from typing import Any
 from app.public_snapshots import publish_snapshot, read_snapshot
 
 EXAMPLES_PATH = "/api/public/agent-examples"
-MAX_EXAMPLES = 12
+MAX_EXAMPLES = 20
 _MAX_EXAMPLE_BYTES = 512 * 1024
 _KEEP = ("question", "mode", "asked_at", "answered_at", "answer", "meta", "agent", "evidence")
 
