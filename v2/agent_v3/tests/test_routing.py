@@ -146,3 +146,10 @@ def test_an_untouched_intent_reports_no_normalizers():
     intent = _intent(wants=["performance"], tickers=["NVDA"])
     out, applied = normalize_intent(intent)
     assert out == intent and applied == []
+
+
+def test_a_command_is_never_answered_by_a_clarification_that_claims_it_ran():
+    out, applied = normalize_intent(_intent(kind="command", tickers=["INTC"], command={"operation": "watchlist.add", "ticker": "INTC"}, clarification="已按你的补充信息将INTC加入关注列表。"))
+    assert applied == ["command_over_clarification"] and out.command is not None and out.clarification == ""
+    trade, applied = normalize_intent(_intent(kind="help", tickers=["INTC"], clarification="我只能管理关注列表和提醒，不能下单交易。"))
+    assert "command_over_clarification" not in applied and trade.clarification  # a refusal keeps its question

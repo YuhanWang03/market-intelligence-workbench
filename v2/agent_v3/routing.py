@@ -42,6 +42,19 @@ class IntentContext:
 Normalizer = Callable[[Any, IntentContext], Any]
 
 
+def command_over_clarification(intent, context):
+    """A state command goes to the confirmation node; a clarification the classifier wrote beside it is dropped.
+
+    "加入关注列表" (answering "是加关注还是设提醒?") came back with both a
+    watchlist.add command and a clarification that claimed the add was
+    already done. The clarification path answered first, so the user read
+    "已加入" while nothing had been written and nothing was pending.
+    """
+    if intent.command is None or not intent.clarification:
+        return intent
+    return intent.model_copy(update={"clarification": ""})
+
+
 def broad_market(intent, context):
     """美股大盘: the index ETFs plus the macro board. A macro reading or a briefing is not a quote, so those keep their own plan."""
     if intent.market_scope != "us_broad" or set(intent.wants) & {"macro", "briefing", "macro_release", "positioning"}:
@@ -97,7 +110,7 @@ def default_date_window(intent, context):
     return intent.model_copy(update={"date_window": DateWindow(start=(context.today - timedelta(days=days - 1)).isoformat(), end=context.today.isoformat(), basis="event" if move else "publication")})
 
 
-NORMALIZERS: tuple[Normalizer, ...] = (broad_market, explain_selected_position, rerank_portfolio, lab_request, open_company_question, news_only, default_date_window)
+NORMALIZERS: tuple[Normalizer, ...] = (command_over_clarification, broad_market, explain_selected_position, rerank_portfolio, lab_request, open_company_question, news_only, default_date_window)
 
 
 def normalize_intent(intent, context: IntentContext | None = None):
