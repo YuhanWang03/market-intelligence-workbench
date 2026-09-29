@@ -27,9 +27,13 @@ const MAX_TURNS_PER_MODE = 40;
 const SURFACE_LABELS: Record<ChatSurface, Record<ChatMode, string>> = { chat: CHAT_LABELS, examples: { agent_v2: 'V2 访客示例', agent_v3: 'V3 访客示例' } };
 function turnMessages(turn: AgentExampleTurn, index: number, surface: ChatSurface): ChatMessage[] {
   return [
-    { id: -(index * 2 + 2), role: 'user', text: turn.question, mode: turn.mode, surface, sentAt: Date.parse(turn.asked_at), exampleId: turn.id },
-    { id: -(index * 2 + 3), role: 'assistant', text: turn.answer, mode: turn.mode, surface, sentAt: Date.parse(turn.answered_at), agent: turn.agent as unknown as AgentChatMeta, evidence: turn.evidence, meta: turn.meta, exampleId: turn.id },
+    { id: -(1000 + index * 2), role: 'user', text: turn.question, mode: turn.mode, surface, sentAt: Date.parse(turn.asked_at), exampleId: turn.id },
+    { id: -(1001 + index * 2), role: 'assistant', text: turn.answer, mode: turn.mode, surface, sentAt: Date.parse(turn.answered_at), agent: turn.agent as unknown as AgentChatMeta, evidence: turn.evidence, meta: turn.meta, exampleId: turn.id },
   ];
+}
+/** React key for a bubble: unique across surfaces, agents and kept turns. A duplicate key once left stale bubbles behind on every page switch. */
+function messageKey(message: ChatMessage): string {
+  return `${message.surface || 'chat'}:${message.mode || 'none'}:${message.exampleId ? `turn-${message.exampleId}-${message.role}` : message.id}`;
 }
 function turnFrom(question: ChatMessage, answer: ChatMessage): Omit<AgentExampleTurn, 'id' | 'published_at'> {
   return { mode: answer.mode === 'agent_v3' ? 'agent_v3' : 'agent_v2', question: question.text, asked_at: new Date(question.sentAt || Date.now()).toISOString(), answered_at: new Date(answer.sentAt || Date.now()).toISOString(), answer: answer.text, meta: answer.meta || '', agent: (answer.agent || {}) as unknown as Record<string, unknown>, evidence: answer.evidence || [] };
@@ -696,7 +700,7 @@ export default function Home() {
   const changeSection = (next: MainSection) => { setSection(next); setPageSelection(undefined); setChatContext(next === 'core' ? '盯盘总览' : next === 'research' ? '研究工作台' : next === 'lab' ? '实验室' : '数据查询花费') };
   if (accessLoading) return <main className="access-gate"><div className="access-card loading"><span className="brand-mark">HF</span><strong>正在建立安全会话…</strong></div></main>;
   const sortedTurns = (mode: ChatMode) => turns.filter(turn => turn.mode === mode).sort((a, b) => Date.parse(a.asked_at) - Date.parse(b.asked_at));
-  const exampleOpener = (mode: ChatMode): ChatMessage => ({ id: OPENER_ID[mode] - 10, role: 'assistant', mode, surface: 'examples', text: CHAT_OPENERS[mode].text, meta: isGuest ? '所有者留下的问答示例，按时间排列' : '这一页的每一问一答都会保存下来给访客看；刷新后仍可接着追问' });
+  const exampleOpener = (mode: ChatMode): ChatMessage => ({ id: -OPENER_ID[mode], role: 'assistant', mode, surface: 'examples', text: CHAT_OPENERS[mode].text, meta: isGuest ? '所有者留下的问答示例，按时间排列' : '这一页的每一问一答都会保存下来给访客看；刷新后仍可接着追问' });
   // What the panel shows: the owner's live chat, or an example page rebuilt from the kept turns plus what was asked since loading.
   const visibleMessages: ChatMessage[] = surface === 'chat' && !isGuest
     ? messages.filter(message => message.mode === chatMode && (message.surface || 'chat') === 'chat')
@@ -717,7 +721,7 @@ export default function Home() {
         <div className="message-list" ref={messageListRef} aria-live="polite">
           {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>{turns.length ? '这里是所有者和两个 Agent 的真实问答，每条标有提问和回答的时间，数字属于那一天。点上方按钮切换 Agent。访客不能提问，请求不会发送给 Agent 或外部数据服务。' : '访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。'}</span></div>}
           {!isGuest && surface === 'examples' && turnsNote && <div className="examples-note">{turnsNote}</div>}
-          {visibleMessages.map(message => <MessageBubble key={message.id} message={message} isGuest={isGuest} chatBusy={chatBusy} resolveConfirmation={resolveConfirmation} onRemove={!isGuest && surface === 'examples' && message.role === 'assistant' && message.exampleId ? () => void removeTurn(message.exampleId as string) : undefined}/>)}
+          {visibleMessages.map(message => <MessageBubble key={messageKey(message)} message={message} isGuest={isGuest} chatBusy={chatBusy} resolveConfirmation={resolveConfirmation} onRemove={!isGuest && surface === 'examples' && message.role === 'assistant' && message.exampleId ? () => void removeTurn(message.exampleId as string) : undefined}/>)}
           {chatBusy && busyMode === chatMode && busySurface === surface && <div className="message assistant progress-message"><div className="typing"><i/><i/><i/></div><span>{chatProgress || '分析中…'}</span></div>}
         </div>
         <div className="quick-actions">{(chatMode === 'agent_v3' ? ['什么是自由现金流？', '查询 NVDA 最近收盘价和来源', '查阅 NVIDIA 最新 10-K 的供应链风险原文'] : ['比较 NVDA 和 AMD 的风险', '分析 AAPL 的估值', '回测 NVDA 动量策略']).map((suggestion, index) => <button type="button" disabled={isGuest} key={suggestion} onClick={() => setChatInput(suggestion)}>{chatMode === 'agent_v3' ? ['知识问答', '行情来源', '财报原文'][index] : ['风险比较', '估值研究', '策略回测'][index]}</button>)}</div>
