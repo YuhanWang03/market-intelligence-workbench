@@ -215,10 +215,11 @@ flowchart TD
 Agent V2 使用明确的数据契约连接路由、计划、执行、证据和输出，主要包括：
 
 - `NormalizedRequest`：规范化后的用户请求和上下文。
-- `RouteDecision`：路由类型、置信度、预算和回答模式。
-- `ExecutionPlan` / `PlanTask`：任务依赖、并行分支和 fan-out 定义。
+- `Intent`：语义意图，含类型、目标、股票、时间范围和置信度。
+- `RouteDecision`：路线种类、能力包、判定理由，以及决定它的意图。
+- `ExecutionPlan` / `PlanTask`：任务依赖、并行分支、fan-out 定义，以及预算等级与回答模式。
 - `ToolEnvelope` / `EvidenceItem`：工具结果、来源、时间、质量和证据标识。
-- `VerificationReport`：引用、数字溯源、冲突和警告。
+- `VerificationReport`：未知引用、未落地数字、已溯源数字和警告。
 - `PendingMutation`：等待用户确认的写操作。
 - `AgentResult`：状态、答案、证据、进度和诊断信息。
 
@@ -253,7 +254,7 @@ V2 通过统一能力目录调用实际工具，能力、子流程和每个能�
 - `mixed`：多类证据混合
 - `insufficient_evidence`：证据不足
 
-校验器检查：引用是否存在、答案中的数字能否回溯到证据、不同工具是否互相冲突，以及是否需要向用户显示数据不完整或过期警告。
+校验器检查：引用的证据 id 是否存在、答案中的数字能否回溯到证据、证据账本里同一 id 是否出现了不同说法，以及是否需要向用户显示数据不完整或过期警告。它不做跨工具的数值或日期一致性比对，这类冲突目前靠回答里的口径说明和对抗审阅来暴露。
 
 ### 会话、记忆与多端一致性
 
@@ -331,13 +332,13 @@ V3 对计划实施更严格的边界：
 
 ### 专家工作流
 
-Agent V3 可以注册受约束的专家流程，例如：
+Agent V3 注册了以下受约束的专家流程（与上文子流程表一致）：
 
-- 公司与财务研究
-- 新闻和催化剂研究
-- SEC 文件与风险因素
-- 组合影响与风险分析
-- 结果审阅与对抗辩论
+- `move_attributor`：按指定日期调查涨跌驱动，候选解释与已核实事件分开标注
+- `filing_reader`：读取 SEC 申报原文，摘出带日期的事件或条款
+- `news_research` 子图：搜索、定位原文、来源交叉审
+- 组合分析工作流：全组合汇总、按浮亏排名、单只持仓自买入以来的逐日归因
+- `reviewer`：对已通过校验的答案提出异议并区分严重程度
 
 专家输出使用固定 schema，不直接返回任意自由文本。专家可访问的工具、轮次和预算由中间件限制，最终仍需进入统一证据账本和校验阶段。
 
@@ -385,17 +386,23 @@ V3 为长任务提供独立持久化层：
 market-intelligence-workbench/
 ├─ ai-workbench/               # Vinext + React Web 前端
 ├─ web/
-│  ├─ backend/                 # FastAPI 主后端、路由、服务与测试
-│  ├─ deploy/                  # Nginx、systemd 与部署脚本
-│  └─ tests/                   # Web 集成测试
+│  ├─ backend/                 # FastAPI 主后端：路由、鉴权、快照、访客示例，及其测试
+│  └─ deploy/                  # Nginx、systemd 与重新部署脚本
 ├─ v2/
-│  ├─ agent_common/            # V2/V3 共享契约、证据和基础能力
-│  ├─ agent_v2/                # Agent V2 核心、适配器与测试
-│  ├─ agent_v3/                # Agent V3 图、运行时、持久化与测试
-│  ├─ research/                # Research Engine
-│  ├─ extensions/              # 数据与领域扩展
-│  └─ telegram/                # Telegram 集成
-├─ scripts/                    # Bot、调度器、流处理器、质量门与运维脚本
+│  ├─ agent_common/            # V2/V3 共享的模型客户端、数字溯源与基础契约
+│  ├─ agent_v2/                # Agent V2 编排器、意图、规划、适配器、子智能体与测试
+│  ├─ agent_v3/                # Agent V3 状态图、路由表、专家流程、持久化与测试
+│  ├─ agent_bench/             # 两个 Agent 的统一评测：题集、冻结回放、裁判、成对盲评
+│  ├─ research/                # 研究引擎（财务、估值、风险等模块）
+│  ├─ data/ macro/ sec/ institutional/ etf/ earnings/ moneyflow/
+│  │                           # 各数据源的客户端、缓存、成本账本与卡片
+│  ├─ portfolio/ risk/ broker/ # 持仓、盈亏、风险与 Alpaca 券商接入
+│  ├─ backtesting/ event_study/ screening/ signals/ personas/
+│  │                           # 实验室引擎
+│  ├─ bot/ scheduler/ streamer/# Telegram Bot、定时任务、行情流服务
+│  └─ monitoring/ reporting/ observability/
+│                              # 盯盘记录、推送格式与运行观测
+├─ scripts/                    # Bot、调度器、流处理器入口，质量门与运维脚本
 ├─ .github/workflows/          # Agent V2 / V3 CI 质量门
 ├─ .env.example                # 环境变量模板，不包含真实密钥
 ├─ pyproject.toml              # Python / Poetry 依赖
@@ -488,13 +495,14 @@ npm run dev
 | 宏观 | `FRED_API_KEY` | FRED 宏观数据 |
 | SEC | `EDGAR_IDENTITY`, `SEC_USER_AGENT` | SEC/EDGAR 合规身份标识 |
 | 券商 | `APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `APCA_PAPER` | Alpaca 模拟或授权账户 |
-| Telegram | `TELEGRAM_CHAT_ID`, `TELEGRAM_WEB_DEFAULT` | Bot 推送与默认行为 |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_WEB_DEFAULT` | Bot 令牌、推送目标与 /ask 的默认 Web 行为 |
 | Web 登录 | `WEB_ADMIN_USERNAME`, `WEB_ADMIN_PASSWORD_HASH`, `WEB_SESSION_SECRET` | 所有者账号、密码摘要和签名会话密钥 |
 | Web 兼容鉴权 | `WEB_OWNER_TOKEN` | 内部进程调用令牌；未设置密码摘要时兼作初始登录密码 |
 | 访客快照 | `WEB_GUEST_ENABLED`, `WEB_PUBLIC_SNAPSHOT_DB` | 启用只读访客入口并设置独立快照库路径 |
 | 功能开关 | `AGENT_V2_WEB_ENABLED`, `AGENT_V3_WEB_ENABLED`, `AGENT_V3_MUTATIONS_ENABLED` | 是否允许智能体使用 Web 兜底；是否允许 V3 执行经网页确认的写操作 |
 | 状态路径 | `WEB_ARCHIVE_DB`, `WEB_LAB_DB`, `WEB_PERSONAS_DB`, `AGENT_V2_SESSION_DB`, `AGENT_V3_DATA_DIR`, `AGENT_V3_ARCHIVE_DB` | 自定义持久化位置 |
 | 记录与账本 | `AGENT_V2_INTENT_LEDGER`, `AGENT_V2_CAPABILITY_LEDGER`, `AGENT_V2_SUBAGENT_LEDGER`, `AGENT_V2_QUALITY_LEDGER`, `AGENT_V2_USER_MEMORY`, `USAGE_CHANNEL` | 意图、能力、子智能体与质量记录文件，用户偏好记忆，以及后台进程的计费渠道标签 |
+| 评测裁判 | `AGENT_BENCH_JUDGE_MODEL`, `AGENT_BENCH_JUDGE_BASE_URL`, `AGENT_BENCH_JUDGE_API_KEY` | `v2/agent_bench` 的裁判模型，应与 Agent 不同厂商；三个必须同时设置 |
 
 没有配置某个付费数据源时，对应能力可能返回部分数据或降级结果，但不应伪造内容。费用页面仅根据实际记录到的 token、credit 和请求量估算，供应商账单仍是最终依据。
 
@@ -546,6 +554,7 @@ Windows 请将 `.venv-agent-v3/bin/python` 和 `pip` 替换为 `.venv-agent-v3\S
 - `POST /api/agent-v3/ask`
 - `GET /api/agent-v3/jobs/{job_id}`
 - `POST /api/agent-v3/jobs/{job_id}/retry`
+- `POST /api/agent-v3/runs/{run_id}/confirm`：网页确认或取消停在确认节点的写操作
 
 网页任务默认以后台 job 运行，调用方通过 job ID 获取进度和结果。
 
