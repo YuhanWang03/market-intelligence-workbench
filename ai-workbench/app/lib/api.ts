@@ -147,20 +147,23 @@ export type AgentV2Response = {
 
 export type AgentPendingMutation = { operation: string; payload: Record<string, unknown>; description: string };
 
-/** One published question with both agents' answers; times are ISO instants. */
-export type AgentExampleAnswer = { answered_at: string; answer: string; meta: string; agent: Record<string, unknown>; evidence: AgentV2Evidence[] };
-export type AgentExampleGroup = { id: string; question: string; asked_at: string; published_at: string; answers: Partial<Record<'agent_v2' | 'agent_v3', AgentExampleAnswer>> };
+/** One question and its answer from an example page, kept for guests; times are ISO instants. */
+export type AgentExampleTurn = { id: string; mode: 'agent_v2' | 'agent_v3'; question: string; asked_at: string; answered_at: string; answer: string; meta: string; agent: Record<string, unknown>; evidence: AgentV2Evidence[]; published_at: string };
 
-export async function fetchAgentExamples(): Promise<AgentExampleGroup[]> {
-  return apiJson<AgentExampleGroup[]>('/api/public/agent-examples');
+export async function fetchAgentExamples(): Promise<AgentExampleTurn[]> {
+  return apiJson<AgentExampleTurn[]>('/api/public/agent-examples');
 }
 
-export async function publishAgentExample(group: Omit<AgentExampleGroup, 'id' | 'published_at'>): Promise<AgentExampleGroup> {
-  return rawJson<AgentExampleGroup>('/api/public/agent-examples', { method: 'POST', body: JSON.stringify(group) });
+export async function publishAgentExample(turn: Omit<AgentExampleTurn, 'id' | 'published_at'>): Promise<AgentExampleTurn> {
+  return rawJson<AgentExampleTurn>('/api/public/agent-examples', { method: 'POST', body: JSON.stringify(turn) });
 }
 
 export async function unpublishAgentExample(id: string): Promise<void> {
   await rawJson(`/api/public/agent-examples/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function clearAgentExamples(mode: 'agent_v2' | 'agent_v3'): Promise<{ removed: number }> {
+  return rawJson<{ removed: number }>(`/api/public/agent-examples?mode=${mode}`, { method: 'DELETE' });
 }
 
 export type AgentV2Job = {

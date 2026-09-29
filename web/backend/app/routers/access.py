@@ -28,7 +28,7 @@ from app.chart_snapshots import (
     publish_holding_chart_snapshots,
     reserve_chart_snapshot_refresh,
 )
-from app.agent_examples import add_group, list_groups, remove_group
+from app.agent_examples import add_turn, clear_turns, list_turns, remove_turn
 from app.public_snapshots import latest_snapshot_time, publish_snapshot, read_snapshot
 
 
@@ -49,18 +49,15 @@ class SnapshotInput(BaseModel):
     payload: Any
 
 
-class AgentExampleAnswer(BaseModel):
+class AgentExampleTurnInput(BaseModel):
+    mode: str = Field(pattern="^agent_v[23]$")
+    question: str = Field(min_length=1, max_length=4000)
+    asked_at: str = Field(min_length=1, max_length=64)
     answered_at: str = Field(min_length=1, max_length=64)
     answer: str = Field(min_length=1, max_length=60000)
     meta: str = Field(default="", max_length=2000)
     agent: dict[str, Any] = Field(default_factory=dict)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class AgentExampleGroupInput(BaseModel):
-    question: str = Field(min_length=1, max_length=4000)
-    asked_at: str = Field(min_length=1, max_length=64)
-    answers: dict[str, AgentExampleAnswer] = Field(min_length=1, max_length=2)
 
 
 class ChartSnapshotRefreshInput(BaseModel):
@@ -170,24 +167,30 @@ async def get_public_snapshot(path: str, _: Principal = Depends(require_access))
 
 @router.get("/public/agent-examples")
 async def get_agent_examples(_: Principal = Depends(require_owner)) -> list[dict]:
-    return await run_in_threadpool(list_groups)
+    return await run_in_threadpool(list_turns)
 
 
 @router.post("/public/agent-examples")
-async def publish_agent_example(body: AgentExampleGroupInput, _: Principal = Depends(require_owner)) -> dict:
-    if set(body.answers) - {"agent_v2", "agent_v3"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="answers are keyed by agent_v2 / agent_v3")
+async def publish_agent_example(body: AgentExampleTurnInput, _: Principal = Depends(require_owner)) -> dict:
     try:
-        return await run_in_threadpool(add_group, body.model_dump())
+        return await run_in_threadpool(add_turn, body.model_dump())
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
-@router.delete("/public/agent-examples/{group_id}")
-async def unpublish_agent_example(group_id: str, _: Principal = Depends(require_owner)) -> dict:
-    if not await run_in_threadpool(remove_group, group_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="group not found")
-    return {"removed": group_id}
+@router.delete("/public/agent-examples")
+async def clear_agent_examples(mode: str, _: Principal = Depends(require_owner)) -> dict:
+    try:
+        return {"removed": await run_in_threadpool(clear_turns, mode), "mode": mode}
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.delete("/public/agent-examples/{turn_id}")
+async def unpublish_agent_example(turn_id: str, _: Principal = Depends(require_owner)) -> dict:
+    if not await run_in_threadpool(remove_turn, turn_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="turn not found")
+    return {"removed": turn_id}
 
 
 @router.post("/public/snapshot/price-history/refresh")

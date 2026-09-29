@@ -4,7 +4,7 @@
 
 import { FormEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep, confirmAgentV3Run, type AgentPendingMutation, type AgentExampleGroup, type AgentExampleAnswer, fetchAgentExamples, publishAgentExample, unpublishAgentExample } from './lib/api';
+import { apiJson, askAgentV2, authGuest, authLogin, authLogout, authStatus, getAgentV2Job, setApiAccessRole, type AccessStatus, type PageContext, type PageSelection, type AgentV2Evidence, type AgentV2Job, type AgentV2Response, type AgentV2SubAgent, type AgentV2TraceStep, confirmAgentV3Run, type AgentPendingMutation, type AgentExampleTurn, fetchAgentExamples, publishAgentExample, unpublishAgentExample, clearAgentExamples } from './lib/api';
 import { LabPage, labMenu, type LabTool } from './lab';
 import { RelationshipMap } from './relationship-map';
 import { MoneyflowPanel, type FlowAnalysis } from './moneyflow-panel';
@@ -21,21 +21,18 @@ const CHAT_OPENERS: Record<ChatMode, { text: string; meta: string }> = {
   agent_v3: { text: '这里是 Agent V3，LangGraph 状态图。分类、规划、执行、合成、校验各是一个节点；加关注、设提醒这类写操作会停在确认节点等你点确认，中断后可以恢复。可以直接提问。', meta: '事实与推断会分开标注 · 与 Agent V2 不共用对话历史' },
 };
 const OPENER_ID: Record<ChatMode, number> = { agent_v2: 1, agent_v3: 2 };
-const MAX_GROUPS = 30;
-//: The examples page asks both agents at once; each side of a pair is one of these.
-type PairSide = { status: 'idle' | 'pending' | 'done' | 'error'; progress: string; message?: ChatMessage };
-type PairDraft = { question: string; askedAt: number; sides: Record<ChatMode, PairSide> };
-const EMPTY_SIDE: PairSide = { status: 'idle', progress: '' };
-function groupMessages(group: AgentExampleGroup, mode: ChatMode, index: number): ChatMessage[] {
-  const answer = group.answers[mode];
-  if (!answer) return [];
+//: 'chat' is the owner's own conversation with an agent; 'examples' is the page whose turns are kept for guests.
+type ChatSurface = 'chat' | 'examples';
+const MAX_TURNS_PER_MODE = 40;
+const SURFACE_LABELS: Record<ChatSurface, Record<ChatMode, string>> = { chat: CHAT_LABELS, examples: { agent_v2: 'V2 访客示例', agent_v3: 'V3 访客示例' } };
+function turnMessages(turn: AgentExampleTurn, index: number, surface: ChatSurface): ChatMessage[] {
   return [
-    { id: -(index * 4 + (mode === 'agent_v2' ? 2 : 4)), role: 'user', text: group.question, mode, sentAt: Date.parse(group.asked_at) },
-    { id: -(index * 4 + (mode === 'agent_v2' ? 3 : 5)), role: 'assistant', text: answer.answer, mode, sentAt: Date.parse(answer.answered_at), agent: answer.agent as unknown as AgentChatMeta, evidence: answer.evidence, meta: `示例问答 · 发布于 ${new Date(group.published_at).toLocaleString('zh-CN')} · ${answer.meta}` },
+    { id: -(index * 2 + 2), role: 'user', text: turn.question, mode: turn.mode, surface, sentAt: Date.parse(turn.asked_at), exampleId: turn.id },
+    { id: -(index * 2 + 3), role: 'assistant', text: turn.answer, mode: turn.mode, surface, sentAt: Date.parse(turn.answered_at), agent: turn.agent as unknown as AgentChatMeta, evidence: turn.evidence, meta: turn.meta, exampleId: turn.id },
   ];
 }
-function answerFrom(message: ChatMessage): AgentExampleAnswer {
-  return { answered_at: new Date(message.sentAt || Date.now()).toISOString(), answer: message.text, meta: message.meta || '', agent: (message.agent || {}) as unknown as Record<string, unknown>, evidence: message.evidence || [] };
+function turnFrom(question: ChatMessage, answer: ChatMessage): Omit<AgentExampleTurn, 'id' | 'published_at'> {
+  return { mode: answer.mode === 'agent_v3' ? 'agent_v3' : 'agent_v2', question: question.text, asked_at: new Date(question.sentAt || Date.now()).toISOString(), answered_at: new Date(answer.sentAt || Date.now()).toISOString(), answer: answer.text, meta: answer.meta || '', agent: (answer.agent || {}) as unknown as Record<string, unknown>, evidence: answer.evidence || [] };
 }
 type AgentChatMeta = { status: string; route: string; answerMode: string; elapsedMs: number; verified: boolean; capabilities: string[]; webRequested: boolean; webEnabled: boolean; webAllowed: boolean; warnings: string[]; synthesis: string; synthesisFallback: boolean; rewritten: string; subAgents: AgentV2SubAgent[]; runId: string; sessionId: string; pendingMutation: AgentPendingMutation | null };
 const STOP_LABELS: Record<string, string> = { finished: '完成', rounds: '轮次用尽', time: '超时', no_model: '无模型', no_budget: '无预算' };
@@ -54,7 +51,7 @@ function synthesisWarnings(synthesis: AgentV2Response['synthesis']): string[] {
     return [...(attempt.warnings || []), ...(attempt.unknown_citations || []).map(id => `未知证据引用：${id}`), ...(attempt.ungrounded_numbers || []).map(value => `未落地数字：${value}`)].map(item => `${stage}被拒：${item}`);
   });
 }
-type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; sentAt?: number; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
+type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string; sentAt?: number; surface?: ChatSurface; exampleId?: string; image?: string; meta?: string; mode?: ChatMode; agent?: AgentChatMeta; evidence?: AgentV2Evidence[] };
 type Position = { symbol: string; current_price: number; market_value: number; unrealized_pl: number; unrealized_pl_pct: number };
 type PortfolioResponse = { account: { cash: number; portfolio_value: number; paper: boolean }; positions: Position[]; pnl: { intraday_pl_pct: number; portfolio_value: number; cash: number }; history?: { timestamp: number[]; equity: number[] } };
 type RiskResponse = { pnl: { daily_pnl_pct: number | null }; concentration: { top_1_pct: number; top_3_pct: number }; exposure: { largest_sector: string; largest_sector_pct: number }; drawdown: { current_drawdown_pct: number | null }; earnings_risk: { ticker: string; days_until: number }[] };
@@ -145,11 +142,11 @@ function formatActivityTimeET(value: string) { try { return `${new Intl.DateTime
 function formatActivityMonthDayET(value: string) { try { const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value)); const month = parts.find(part => part.type === 'month')?.value || '--'; const day = parts.find(part => part.type === 'day')?.value || '--'; return `${month}-${day}` } catch { return value.slice(5, 10) } }
 function htmlToText(html: string) { if (typeof window === 'undefined') return html.replace(/<[^>]+>/g, ' '); const doc = new DOMParser().parseFromString(html.replace(/<br\s*\/?>/gi, '\n'), 'text/html'); return (doc.body.textContent || '').replace(/\n\s+/g, '\n').trim() }
 async function waitForChatJob(jobId: string): Promise<ChatApiResponse> { const deadline = Date.now() + 190_000; while (Date.now() < deadline) { await new Promise<void>(resolve => window.setTimeout(resolve, 1500)); const job = await apiJson<ChatApiResponse>(`/api/chat/jobs/${encodeURIComponent(jobId)}`); if (job.status === 'completed') return job; if (job.status === 'failed') throw new Error(job.error || '产业链研究失败') } throw new Error('产业链研究等待超过 190 秒') }
-function agentSessionId(version: 'v2' | 'v3', scope = 'agent') { const key = `workbench:${scope}-${version}-session`; const stored = sessionStorage.getItem(key); if (stored) return stored; const id = `workbench-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`; sessionStorage.setItem(key, id); return id }
+function agentSessionId(version: 'v2' | 'v3', surface: ChatSurface = 'chat') { if (surface === 'examples') return `workbench-examples-${version}`; const key = `workbench:agent-${version}-session`; const stored = sessionStorage.getItem(key); if (stored) return stored; const id = `workbench-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`; sessionStorage.setItem(key, id); return id }
 function waitWithSignal(ms: number, signal: AbortSignal) { return new Promise<void>((resolve, reject) => { const timer = window.setTimeout(resolve, ms); signal.addEventListener('abort', () => { window.clearTimeout(timer); reject(new DOMException('Request cancelled', 'AbortError')) }, { once: true }) }) }
 async function waitForAgentJob(initial: AgentV2Job, signal: AbortSignal, onProgress: (job: AgentV2Job) => void, version: 'v2' | 'v3'): Promise<AgentV2Response> { let job = initial; const deadline = Date.now() + 15 * 60_000; while (Date.now() < deadline) { if (job.status === 'completed' && job.result) return job.result; if (job.status === 'failed') throw new Error(job.error || 'Agent 后台任务失败'); onProgress(job); await waitWithSignal(1000, signal); job = await getAgentV2Job(job.job_id, signal, version) } throw new Error('Agent 后台任务超过 15 分钟仍未完成') }
 /** One chat turn, as both views render it: time line, badges, answer, confirmation, tools, evidence, warnings, meta. */
-function MessageBubble({ message, isGuest, chatBusy, resolveConfirmation }: { message: ChatMessage; isGuest: boolean; chatBusy: boolean; resolveConfirmation: (message: ChatMessage, approve: boolean) => Promise<void> }) {
+function MessageBubble({ message, isGuest, chatBusy, resolveConfirmation, onRemove }: { message: ChatMessage; isGuest: boolean; chatBusy: boolean; resolveConfirmation: (message: ChatMessage, approve: boolean) => Promise<void>; onRemove?: () => void }) {
   return <div className={`message ${message.role}`}>
             {(message.sentAt || (message.role === 'user' && message.mode)) && <div className="message-mode">{message.role === 'user' && message.mode && <span>{CHAT_LABELS[message.mode]}</span>}{message.sentAt && <time dateTime={new Date(message.sentAt).toISOString()} title={`美东 ${formatClockInZone(new Date(message.sentAt), 'America/New_York')}`}>{message.role === 'user' ? '发送' : '回答'} {formatClock(new Date(message.sentAt))}</time>}</div>}
             {message.agent && <div className="agent-badges"><span>{message.agent.status}</span>{message.agent.status === 'partial' && <span className="warning">数据或结论仍有缺口</span>}<span>{message.agent.route}</span><span>{message.agent.answerMode}</span>{Boolean(message.evidence?.length) && <span title="仅表示引用和数字可追溯，不代表数据口径一致或原因已确认" className={message.agent.verified ? 'verified' : 'warning'}>{message.agent.verified ? '引用与数字可追溯' : '引用或数字校验有警告'}</span>}{message.agent.synthesis && <span className={message.agent.synthesisFallback ? 'warning' : ''}>{message.agent.synthesis}</span>}{message.agent.rewritten && <span title={message.agent.rewritten}>接上文</span>}{message.agent.webAllowed && <span className="web">Web 已授权</span>}{message.agent.webRequested && !message.agent.webEnabled && <span className="warning">服务端未启用 Web</span>}<span>{(message.agent.elapsedMs / 1000).toFixed(1)}s</span></div>}
@@ -159,7 +156,7 @@ function MessageBubble({ message, isGuest, chatBusy, resolveConfirmation }: { me
             {message.agent && message.agent.capabilities.length > 0 && <details className="agent-detail"><summary>执行工具（{message.agent.capabilities.length}）{message.agent.subAgents.length > 0 && ` · 子智能体 ${message.agent.subAgents.length}`}</summary><div className="capability-list">{message.agent.capabilities.map((capability, index) => <code key={`${capability}-${index}`}>{capability}</code>)}</div>{message.agent.subAgents.map((agent, index) => <div key={`${agent.capability}-${index}`} className="sub-agent"><SubAgentTrace label={`${agent.label} ${agent.subject}`} rounds={agent.rounds} elapsedMs={agent.elapsed_ms} stop={agent.stop_reason} calls={agent.calls} trace={agent.trace} intraday={agent.intraday} notes={agent.notes}/>{agent.nested.map((nested, nestedIndex) => <div key={nestedIndex} className="sub-agent nested"><SubAgentTrace label={nested.label} rounds={nested.rounds} elapsedMs={nested.elapsed_ms} stop={nested.stop_reason} calls={nested.calls} trace={nested.trace}/></div>)}</div>)}</details>}
             {message.evidence && message.evidence.length > 0 && <details id={`agent-evidence-${message.id}`} className="agent-detail"><summary>证据（{message.evidence.length}）</summary><ol className="evidence-list">{message.evidence.map((item, index) => <li id={`agent-evidence-${message.id}-${index + 1}`} key={item.id}><div><code>{item.id}</code>{item.entity && <strong>{item.entity}</strong>}</div><p>{item.claim}</p>{item.source_url ? <a href={item.source_url} target="_blank" rel="noreferrer">{item.source_title || item.source_id || '查看来源'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</a> : <small>{item.source_title || item.source_id || '内部计算结果'}{item.as_of ? ` · ${item.as_of.slice(0, 10)}` : ''}</small>}</li>)}</ol></details>}
             {message.agent && message.agent.warnings.length > 0 && <details className="agent-detail warning-detail"><summary>校验警告（{message.agent.warnings.length}）</summary><ul>{message.agent.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul></details>}
-            {message.meta && <div className="message-meta">{message.meta}</div>}
+            {(message.meta || onRemove) && <div className="message-meta">{message.meta}{onRemove && <button type="button" className="remove-turn" onClick={onRemove} title="删除这一问一答，访客将看不到">删除</button>}</div>}
           </div>;
 }
 
@@ -430,23 +427,33 @@ export default function Home() {
   const [costReport, setCostReport] = useState<CostReport | null>(null); const [costLoading, setCostLoading] = useState(false); const [costError, setCostError] = useState('');
   const [alertFilter, setAlertFilter] = useState<'all' | 'positions' | 'p0'>('all'); const [researchTicker, setResearchTicker] = useState('NVDA'); const [chatInput, setChatInput] = useState(''); const [chatBusy, setChatBusy] = useState(false); const [chatContext, setChatContext] = useState('盯盘总览'); const [chatMode, setChatMode] = useState<ChatMode>('agent_v2'); const [allowAgentWeb, setAllowAgentWeb] = useState(true); const [chatProgress, setChatProgress] = useState('');
   const [pageSelection, setPageSelection] = useState<PageSelection | undefined>();
-  const [messages, setMessages] = useState<ChatMessage[]>((['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => ({ id: OPENER_ID[mode], role: 'assistant' as const, mode, ...CHAT_OPENERS[mode] })));
+  const [messages, setMessages] = useState<ChatMessage[]>((['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => ({ id: OPENER_ID[mode], role: 'assistant' as const, mode, surface: 'chat' as const, ...CHAT_OPENERS[mode] })));
   const [busyMode, setBusyMode] = useState<ChatMode | null>(null);
+  const [busySurface, setBusySurface] = useState<ChatSurface>('chat');
   const isGuest = access?.role === 'guest';
-  const [groups, setGroups] = useState<AgentExampleGroup[]>([]);
-  const [groupsNote, setGroupsNote] = useState('');
-  const [chatView, setChatView] = useState<'chat' | 'pairs'>('chat');
-  const [pairQuestion, setPairQuestion] = useState('');
-  const [pairDraft, setPairDraft] = useState<PairDraft | null>(null);
-  const pairRequestsRef = useRef<Record<ChatMode, AbortController | null>>({ agent_v2: null, agent_v3: null });
-  // Guests see the owner's published groups; the owner sees the same list to manage it.
-  const loadGroups = useCallback(async (role: AccessStatus['role']) => {
-    try { setGroups(await fetchAgentExamples()) }
-    catch (error) { setGroups([]); if (role === 'owner') setGroupsNote(error instanceof Error ? error.message : '示例读取失败') }
+  const [turns, setTurns] = useState<AgentExampleTurn[]>([]);
+  const [turnsNote, setTurnsNote] = useState('');
+  const [surface, setSurface] = useState<ChatSurface>('chat');
+  // The example pages' turns, kept on the server: guests read them, the owner continues and prunes them.
+  const loadTurns = useCallback(async (role: AccessStatus['role']) => {
+    try { setTurns((await fetchAgentExamples()).filter(turn => turn.mode === 'agent_v2' || turn.mode === 'agent_v3')) }
+    catch (error) { setTurns([]); if (role === 'owner') setTurnsNote(error instanceof Error ? error.message : '示例读取失败') }
   }, []);
-  const removeGroup = async (id: string) => {
-    try { await unpublishAgentExample(id); setGroups(items => items.filter(item => item.id !== id)); setGroupsNote('已删除一组') }
-    catch (error) { setGroupsNote(error instanceof Error ? error.message : '删除失败') }
+  const keepTurn = async (question: ChatMessage, answer: ChatMessage) => {
+    try {
+      const row = await publishAgentExample(turnFrom(question, answer));
+      setTurns(items => [...items, row]);
+      setMessages(items => items.map(item => item.id === question.id || item.id === answer.id ? { ...item, exampleId: row.id } : item));
+    } catch (error) { setTurnsNote(`这一问一答没有保存：${error instanceof Error ? error.message : 'unknown'}`) }
+  };
+  const removeTurn = async (id: string) => {
+    try { await unpublishAgentExample(id); setTurns(items => items.filter(item => item.id !== id)); setMessages(items => items.filter(item => item.exampleId !== id)); setTurnsNote('已删除一问一答') }
+    catch (error) { setTurnsNote(error instanceof Error ? error.message : '删除失败') }
+  };
+  const clearTurns = async (mode: ChatMode) => {
+    if (!window.confirm(`删除 ${SURFACE_LABELS.examples[mode]} 里的全部内容？访客将看不到任何 ${CHAT_LABELS[mode]} 的示例。`)) return;
+    try { const { removed } = await clearAgentExamples(mode); setTurns(items => items.filter(item => item.mode !== mode)); setMessages(items => items.filter(item => !(item.surface === 'examples' && item.mode === mode))); setTurnsNote(`已删除 ${removed} 条`) }
+    catch (error) { setTurnsNote(error instanceof Error ? error.message : '删除失败') }
   };
   useEffect(() => { accessRef.current = access }, [access]);
   const refreshData = useCallback(async (refreshChartSnapshots = false) => {
@@ -537,7 +544,8 @@ export default function Home() {
     return () => { active = false };
   }, []);
   useEffect(() => { if (access?.authenticated) void refreshData() }, [access?.authenticated, access?.role, refreshData]);
-  useEffect(() => { if (access?.authenticated) void loadGroups(access.role) }, [access?.authenticated, access?.role, loadGroups]);
+  useEffect(() => { if (access?.authenticated) void loadTurns(access.role) }, [access?.authenticated, access?.role, loadTurns]);
+  useEffect(() => { if (isGuest) setSurface('examples') }, [isGuest]);
   useEffect(() => () => chatRequestRef.current?.abort(), []);
   useEffect(() => { const updateClock = () => { const now = new Date(); setCurrentTime(formatClock(now)); setEasternTime(formatClockInZone(now, 'America/New_York')) }; updateClock(); const timer = window.setInterval(updateClock, 1000); return () => window.clearInterval(timer) }, []);
   const refreshCosts = useCallback(async (recentFilter = 'all', offset = 0, syncPrices = false) => { setCostLoading(true); setCostError(''); try { const query = new URLSearchParams({ limit: '100', filter: recentFilter, offset: String(offset) }); setCostReport(await apiJson<CostReport>(`/api/costs${syncPrices ? '/refresh' : ''}?${query}`, syncPrices ? { method: 'POST' } : undefined)) } catch (error) { setCostError(error instanceof Error ? error.message : 'unknown') } finally { setCostLoading(false) } }, []);
@@ -555,7 +563,7 @@ export default function Home() {
     }).catch(() => undefined);
     return () => { cancelled = true };
   }, [section, researchTool, researchTicker, researchBusy, researchResult]);
-  useEffect(() => { const panel = messageListRef.current; if (panel) panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' }) }, [messages, chatBusy, chatMode]);
+  useEffect(() => { const panel = messageListRef.current; if (panel) panel.scrollTo({ top: panel.scrollHeight, behavior: 'smooth' }) }, [messages, chatBusy, chatMode, surface, turns]);
   const buildPageContext = useCallback((messageContext: string, contextOverride?: string, selectionOverride?: PageSelection): PageContext => {
     const researchMatches = researchResult?.ticker === researchTicker && researchResult?.tool === researchTool;
     return {
@@ -566,73 +574,40 @@ export default function Home() {
     };
   }, [section, researchTool, labTool, researchTicker, researchResult, researchBusy, isDemo, dataError, pageSelection]);
 
-  // The examples page: one question, both agents, each on its own session so it never continues the owner's chats.
-  const askPairSide = useCallback(async (mode: ChatMode, question: string, askedAt: number) => {
-    const version = mode === 'agent_v3' ? 'v3' : 'v2';
-    pairRequestsRef.current[mode]?.abort();
-    const controller = new AbortController();
-    pairRequestsRef.current[mode] = controller;
-    const update = (side: Partial<PairSide>) => setPairDraft(draft => draft && draft.question === question ? { ...draft, sides: { ...draft.sides, [mode]: { ...draft.sides[mode], ...side } } } : draft);
-    update({ status: 'pending', progress: `${CHAT_LABELS[mode]} 正在规划…`, message: undefined });
-    try {
-      const response = await runAgent(question, version, agentSessionId(version, 'pair'), allowAgentWeb, controller.signal, buildPageContext(chatContext), progress => update({ progress }));
-      update({ status: 'done', progress: '', message: { id: Date.now(), role: 'assistant', sentAt: Date.now(), mode, ...agentMessageFrom(response, mode, chatContext, agentSessionId(version, 'pair')) } });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      update({ status: 'error', progress: '', message: { id: Date.now(), role: 'assistant', sentAt: Date.now(), mode, text: `查询失败：${error instanceof Error ? error.message : 'unknown'}`, meta: '连接错误' } });
-    } finally { if (pairRequestsRef.current[mode] === controller) pairRequestsRef.current[mode] = null }
-  }, [allowAgentWeb, buildPageContext, chatContext]);
-  const askPair = (raw: string) => {
-    const question = raw.trim();
-    if (!question || isGuest) return;
-    const askedAt = Date.now();
-    setPairDraft({ question, askedAt, sides: { agent_v2: { ...EMPTY_SIDE }, agent_v3: { ...EMPTY_SIDE } } });
-    setPairQuestion('');
-    void askPairSide('agent_v2', question, askedAt); void askPairSide('agent_v3', question, askedAt);
-  };
-  const publishPair = async () => {
-    if (!pairDraft) return;
-    const answers: AgentExampleGroup['answers'] = {};
-    for (const mode of ['agent_v2', 'agent_v3'] as ChatMode[]) { const side = pairDraft.sides[mode]; if (side.status === 'done' && side.message) answers[mode] = answerFrom(side.message) }
-    try {
-      const row = await publishAgentExample({ question: pairDraft.question, asked_at: new Date(pairDraft.askedAt).toISOString(), answers });
-      setGroups(items => [...items, row]); setPairDraft(null); setGroupsNote(`已发布第 ${groups.length + 1} 组（${new Date(row.published_at).toLocaleString('zh-CN')}）`);
-    } catch (error) { setGroupsNote(error instanceof Error ? error.message : '发布失败') }
-  };
-  const pairBusy = Boolean(pairDraft && (pairDraft.sides.agent_v2.status === 'pending' || pairDraft.sides.agent_v3.status === 'pending'));
-  const pairReady = Boolean(pairDraft && !pairBusy && pairDraft.sides.agent_v2.status === 'done' && pairDraft.sides.agent_v3.status === 'done');
-
   const sendMessage = useCallback(async (raw: string, contextOverride?: string, selectionOverride?: PageSelection): Promise<ToolResult | undefined> => {
     const text = raw.trim();
     if (!text || chatBusy || isGuest) return;
     const messageContext = contextOverride || chatContext;
     const requestMode = chatMode;
+    const requestSurface = surface;
     const pageContext = buildPageContext(messageContext, contextOverride, selectionOverride);
     const now = Date.now();
     let progressId: number | null = null;
     const controller = new AbortController();
     chatRequestRef.current = controller;
-    setMessages(items => [...items, { id: now, role: 'user', text, mode: requestMode, sentAt: now }]);
+    const userMessage: ChatMessage = { id: now, role: 'user', text, mode: requestMode, surface: requestSurface, sentAt: now };
+    setMessages(items => [...items, userMessage]);
     setChatInput('');
-    setChatBusy(true); setBusyMode(requestMode);
+    setChatBusy(true); setBusyMode(requestMode); setBusySurface(requestSurface);
     setChatProgress(`${CHAT_LABELS[requestMode]} 正在规划…`);
     try {
       const version = requestMode === 'agent_v3' ? 'v3' : 'v2';
-      let response = await runAgent(text, version, agentSessionId(version), allowAgentWeb, controller.signal, pageContext, progress => {
+      let response = await runAgent(text, version, agentSessionId(version, requestSurface), allowAgentWeb, controller.signal, pageContext, progress => {
         setChatProgress(progress);
-        if (progressId == null) { progressId = now + 1; setMessages(items => [...items, { id: progressId as number, role: 'assistant', sentAt: Date.now(), text: progress, meta: '执行进度 · 最长等待 15 分钟', mode: requestMode }]) }
+        if (progressId == null) { progressId = now + 1; setMessages(items => [...items, { id: progressId as number, role: 'assistant', sentAt: Date.now(), text: progress, meta: '执行进度 · 最长等待 15 分钟', mode: requestMode, surface: requestSurface }]) }
         else setMessages(items => items.map(item => item.id === progressId ? { ...item, text: progress } : item));
       });
-      const built = agentMessageFrom(response, requestMode, messageContext, agentSessionId(version));
+      const built = agentMessageFrom(response, requestMode, messageContext, agentSessionId(version, requestSurface));
       const result: ToolResult = { text: built.text, intent: response.route.kind };
-      const finalMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', sentAt: Date.now(), mode: requestMode, ...built };
+      const finalMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', sentAt: Date.now(), mode: requestMode, surface: requestSurface, ...built };
       setMessages(items => progressId == null ? [...items, finalMessage] : items.map(item => item.id === progressId ? finalMessage : item));
+      if (requestSurface === 'examples') void keepTurn(userMessage, finalMessage);
       return result;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       const detail = error instanceof Error ? error.message : 'unknown';
       const result = { text: `查询失败：${detail}。请检查 Web API、凭据或 owner token。` };
-      const errorMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', sentAt: Date.now(), ...result, mode: requestMode, meta: `连接错误 · 上下文：${messageContext}` };
+      const errorMessage: ChatMessage = { id: progressId ?? now + 1, role: 'assistant', sentAt: Date.now(), ...result, mode: requestMode, surface: requestSurface, meta: `连接错误 · 上下文：${messageContext}` };
       setMessages(items => progressId == null ? [...items, errorMessage] : items.map(item => item.id === progressId ? errorMessage : item));
       return result;
     } finally {
@@ -640,7 +615,7 @@ export default function Home() {
       setChatBusy(false);
       setChatProgress('');
     }
-  }, [allowAgentWeb, chatBusy, chatContext, chatMode, buildPageContext, isGuest]);
+  }, [allowAgentWeb, chatBusy, chatContext, chatMode, surface, buildPageContext, isGuest]);
 
   // A write the agent stopped on. V3 resumes its checkpoint through the confirm
   // endpoint; V2 resolves the pending write with the next message in the session.
@@ -648,15 +623,19 @@ export default function Home() {
     if (!message.agent || chatBusy || isGuest) return;
     if (message.mode !== 'agent_v3') { await sendMessage(approve ? '确认' : '取消'); return; }
     const { runId, sessionId } = message.agent;
-    setChatBusy(true); setBusyMode('agent_v3');
+    const messageSurface: ChatSurface = message.surface || 'chat';
+    setChatBusy(true); setBusyMode('agent_v3'); setBusySurface(messageSurface);
     setChatProgress(approve ? 'Agent V3 正在执行已确认的修改…' : 'Agent V3 正在取消…');
     try {
       const response = await confirmAgentV3Run(runId, sessionId, approve);
       const confirmed: ChatMessage = { ...message, id: Date.now(), sentAt: Date.now(), text: response.answer || response.error || '没有返回结果。', meta: `运行 ${response.run_id} · ${approve ? '已确认执行' : '已取消'}`, agent: { ...message.agent, status: response.status, pendingMutation: null, verified: response.status !== 'failed' && response.verification.ok, warnings: [...response.verification.warnings], capabilities: response.plan.tasks.map(task => task.capability), elapsedMs: response.elapsed_ms }, evidence: uniqueEvidence(response.evidence || []) };
-      setMessages(items => [...items.map(item => item.id === message.id && item.agent ? { ...item, agent: { ...item.agent, pendingMutation: null }, meta: `${item.meta || ''} · ${approve ? '已确认' : '已取消'}` } : item), confirmed]);
+      const choice: ChatMessage = { id: Date.now() - 1, role: 'user', text: approve ? '确认执行' : '取消', mode: 'agent_v3', surface: messageSurface, sentAt: Date.now() };
+      const kept: ChatMessage = { ...confirmed, surface: messageSurface, exampleId: undefined };
+      setMessages(items => [...items.map(item => item.id === message.id && item.agent ? { ...item, agent: { ...item.agent, pendingMutation: null }, meta: `${item.meta || ''} · ${approve ? '已确认' : '已取消'}` } : item), choice, kept]);
+      if (messageSurface === 'examples') void keepTurn(choice, kept);
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'unknown';
-      setMessages(items => [...items, { id: Date.now(), sentAt: Date.now(), role: 'assistant', text: `确认失败：${detail}。待确认的操作可能已过期，请重新提问。`, mode: 'agent_v3', meta: '连接错误' }]);
+      setMessages(items => [...items, { id: Date.now(), sentAt: Date.now(), role: 'assistant', text: `确认失败：${detail}。待确认的操作可能已过期，请重新提问。`, mode: 'agent_v3', surface: messageSurface, meta: '连接错误' }]);
     } finally {
       setChatBusy(false);
       setChatProgress('');
@@ -716,44 +695,33 @@ export default function Home() {
   };
   const changeSection = (next: MainSection) => { setSection(next); setPageSelection(undefined); setChatContext(next === 'core' ? '盯盘总览' : next === 'research' ? '研究工作台' : next === 'lab' ? '实验室' : '数据查询花费') };
   if (accessLoading) return <main className="access-gate"><div className="access-card loading"><span className="brand-mark">HF</span><strong>正在建立安全会话…</strong></div></main>;
-  const sortedGroups = [...groups].sort((a, b) => Date.parse(a.asked_at) - Date.parse(b.asked_at));
-  const visibleMessages: ChatMessage[] = isGuest
-    ? [{ id: OPENER_ID[chatMode], role: 'assistant' as const, mode: chatMode, ...CHAT_OPENERS[chatMode] }, ...sortedGroups.flatMap((group, index) => groupMessages(group, chatMode, index))]
-    : messages.filter(message => message.mode === chatMode);
-  const pairsPanel = <div className="pairs-panel">
-    {isGuest
-      ? <div className="pairs-intro"><strong>同一个问题，两个 Agent 各自的回答</strong><span>{sortedGroups.length ? `共 ${sortedGroups.length} 组，由所有者提问并发布。每条标有回答时间，数字属于那一天。` : '所有者还没有发布对比示例。'}</span></div>
-      : <form className="pairs-composer" onSubmit={event => { event.preventDefault(); askPair(pairQuestion) }}><textarea aria-label="向两个 Agent 提问" value={pairQuestion} disabled={pairBusy} onChange={e => setPairQuestion(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askPair(pairQuestion) } }} placeholder="输入一个问题，Agent V2 和 Agent V3 同时回答；满意后发布为一组" rows={2}/><button type="submit" disabled={pairBusy || !pairQuestion.trim() || groups.length >= MAX_GROUPS}>同时提问</button></form>}
-    {!isGuest && groupsNote && <div className="examples-note">{groupsNote}</div>}
-    {!isGuest && pairDraft && <section className="pair-group draft" aria-label="待发布的一组">
-      <header><div className="message user pair-question"><div className="message-mode"><span>提问</span><time>{formatClock(new Date(pairDraft.askedAt))}</time></div><div className="message-body">{pairDraft.question}</div></div><div className="pair-toolbar"><button type="button" className="primary" disabled={!pairReady} onClick={() => void publishPair()}>发布这一组</button><button type="button" disabled={pairBusy} onClick={() => { pairRequestsRef.current.agent_v2?.abort(); pairRequestsRef.current.agent_v3?.abort(); setPairDraft(null) }}>放弃</button></div></header>
-      <div className="pair-columns">{(['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => { const side = pairDraft.sides[mode]; return <div key={mode} className="pair-column"><h4>{CHAT_LABELS[mode]}{side.status !== 'pending' && <button type="button" onClick={() => void askPairSide(mode, pairDraft.question, pairDraft.askedAt)}>重新提问</button>}</h4>{side.status === 'pending' && <div className="message assistant progress-message"><div className="typing"><i/><i/><i/></div><span>{side.progress || '分析中…'}</span></div>}{side.message && <MessageBubble message={side.message} isGuest={true} chatBusy={pairBusy} resolveConfirmation={resolveConfirmation}/>}</div> })}</div>
-    </section>}
-    <div className="pair-groups">{[...sortedGroups].reverse().map((group, index) => <section key={group.id} className="pair-group" aria-label={`第 ${sortedGroups.length - index} 组`}>
-      <header><div className="message user pair-question"><div className="message-mode"><span>第 {sortedGroups.length - index} 组 · 提问</span><time>{formatClock(new Date(group.asked_at))}</time></div><div className="message-body">{group.question}</div></div>{!isGuest && <div className="pair-toolbar"><span>发布于 {new Date(group.published_at).toLocaleString('zh-CN')}</span><button type="button" onClick={() => void removeGroup(group.id)}>删除这一组</button></div>}</header>
-      <div className="pair-columns">{(['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => { const [, answer] = groupMessages(group, mode, sortedGroups.length - index); return <div key={mode} className="pair-column"><h4>{CHAT_LABELS[mode]}</h4>{answer ? <MessageBubble message={answer} isGuest={true} chatBusy={false} resolveConfirmation={resolveConfirmation}/> : <p className="pair-missing">这一组没有 {CHAT_LABELS[mode]} 的回答。</p>}</div> })}</div>
-    </section>)}</div>
-  </div>;
+  const sortedTurns = (mode: ChatMode) => turns.filter(turn => turn.mode === mode).sort((a, b) => Date.parse(a.asked_at) - Date.parse(b.asked_at));
+  const exampleOpener = (mode: ChatMode): ChatMessage => ({ id: OPENER_ID[mode] - 10, role: 'assistant', mode, surface: 'examples', text: CHAT_OPENERS[mode].text, meta: isGuest ? '所有者留下的问答示例，按时间排列' : '这一页的每一问一答都会保存下来给访客看；刷新后仍可接着追问' });
+  // What the panel shows: the owner's live chat, or an example page rebuilt from the kept turns plus what was asked since loading.
+  const visibleMessages: ChatMessage[] = surface === 'chat' && !isGuest
+    ? messages.filter(message => message.mode === chatMode && (message.surface || 'chat') === 'chat')
+    : [exampleOpener(chatMode), ...sortedTurns(chatMode).flatMap((turn, index) => turnMessages(turn, index, 'examples')), ...messages.filter(message => message.surface === 'examples' && message.mode === chatMode && !message.exampleId)];
+  const exampleCount = (mode: ChatMode) => turns.filter(turn => turn.mode === mode).length;
   if (!access?.authenticated) return <main className="access-gate"><section className="access-card"><div className="access-brand"><span className="brand-mark">HF</span><div><h1>Market Intelligence Workbench</h1><p>所有者可以使用完整功能；访客只能查看最后发布的只读快照。</p></div></div><form onSubmit={handleLogin}><label><span>用户名</span><input autoComplete="username" value={loginUsername} onChange={event => setLoginUsername(event.target.value)} disabled={loginBusy}/></label><label><span>密码</span><input type="password" autoComplete="current-password" value={loginPassword} onChange={event => setLoginPassword(event.target.value)} disabled={loginBusy}/></label>{loginError && <div className="access-error">{loginError}</div>}<button className="access-login" type="submit" disabled={loginBusy || !loginUsername.trim() || !loginPassword}>{loginBusy ? '正在验证…' : '所有者登录'}</button></form>{access?.guest_enabled && <><div className="access-divider"><span>或者</span></div><button className="access-guest" type="button" disabled={loginBusy} onClick={() => void enterGuestMode()}>以访客身份查看</button><small>访客不能刷新数据、运行 Agent、修改监控或启动研究与实验。</small></>}</section></main>;
   return <main className="app-shell"><header className="app-header"><div className="brand"><span className="brand-mark">HF</span><span>AI Hedge Fund</span></div><nav className="main-nav" aria-label="主导航">{([['core', '盯盘'], ['research', '研究'], ['lab', '实验室'], ['cost', '花费']] as const).map(([id, label]) => <button key={id} className={section === id ? 'active' : ''} onClick={() => changeSection(id)}>{label}</button>)}</nav><time className="header-clock eastern" aria-label="本机时间" suppressHydrationWarning><span>本机</span>{currentTime || '---- -- -- --:--:--'}</time><time className="header-clock eastern" aria-label="美东时间" suppressHydrationWarning><span>美东</span>{easternTime || '---- -- -- --:--:--'}</time><div className="header-status"><span className={`status-dot ${isGuest || isDemo ? 'demo' : ''}`}/><span>{isGuest ? '访客只读' : isDemo ? '数据连接异常' : '所有者模式'}</span><button className="header-logout" type="button" onClick={() => void leaveSession()}>退出</button></div></header>
     {isGuest && <div className="guest-banner"><strong>访客只读模式</strong><span>当前展示所有者最后发布的快照，所有付费调用、刷新、研究、实验和管理操作均已在服务器端禁用。</span><time>{access.snapshot_updated_at ? `最近发布 ${new Date(access.snapshot_updated_at).toLocaleString('zh-CN')}` : '尚未发布快照'}</time></div>}
     <div className={`product-layout ${isGuest ? 'guest-layout' : ''}`}><section className={`main-workspace section-${section} ${section === 'research' || section === 'lab' ? 'with-sidebar' : ''}`}>{(section === 'research' || section === 'lab') && <aside className="tool-sidebar"><div className="sidebar-label">{section === 'research' ? '研究工具' : '实验工具'}</div>{(section === 'research' ? researchMenu : labMenu).map(item => { const active = section === 'research' ? researchTool === item.id : labTool === item.id; return <button key={item.id} className={active ? 'active' : ''} onClick={() => section === 'research' ? setResearchTool(item.id as ResearchTool) : setLabTool(item.id as LabTool)}><span>{item.icon}</span>{item.label}</button> })}</aside>}<div className="workspace-content">{section === 'core' && <CorePage readOnly={isGuest} portfolio={portfolio} risk={risk} tape={tape} history={history} activity={activity} activityWarning={activityWarning} monitoringUniverse={monitoringUniverse} alertFilter={alertFilter} setAlertFilter={setAlertFilter} refresh={() => void refreshData(true)} refreshing={isRefreshing} lastUpdated={lastUpdated} dataError={dataError} chartSnapshotMessage={chartSnapshotMessage} watchlist={watchlist} priceAlerts={priceAlerts} addMonitoringTicker={addMonitoringTicker} removeMonitoringTicker={removeMonitoringTicker} addWatchlist={addWatchlist} removeWatchlist={removeWatchlist} addPriceAlert={addPriceAlert} removePriceAlert={removePriceAlert}/>} {section === 'research' && <ResearchPage readOnly={isGuest} tool={researchTool} ticker={researchTicker} setTicker={setResearchTicker} ask={askWithContext} run={runResearch} result={researchResult} busy={researchBusy}/>} {section === 'lab' && <LabPage readOnly={isGuest} tool={labTool} selectTool={setLabTool} ask={askWithContext} askNow={askAndSend}/>} {section === 'cost' && <fieldset className="guest-disabled-page" disabled={isGuest}><CostPage report={costReport} loading={costLoading} error={costError} refresh={refreshCosts}/></fieldset>}</div></section>
       <aside className="chat-panel" aria-label="AI 投资助理">
-        <div className="chat-header"><div className="ai-avatar">AI</div><div><strong>{chatView === 'pairs' ? (isGuest ? '两个 Agent 对比' : '访客示例') : CHAT_LABELS[chatMode]}</strong><span>{chatView === 'pairs' ? (isGuest ? `${groups.length} 组已发布的问答` : `一个问题两个 Agent 同时回答，发布后访客可见 · ${groups.length}/${MAX_GROUPS} 组`) : isGuest ? '访客模式不执行模型或付费工具 · 切换按钮查看另一个 Agent 的示例' : chatMode === 'agent_v3' ? '公开研究、原文引用与会话追问 · 写操作需确认' : '规划并调用研究、账户与量化工具'}</span></div><div className="fact-mode">{isGuest ? '已禁用' : '证据优先'}</div></div>
+        <div className="chat-header"><div className="ai-avatar">AI</div><div><strong>{SURFACE_LABELS[isGuest ? 'examples' : surface][chatMode]}</strong><span>{isGuest ? `所有者在 ${CHAT_LABELS[chatMode]} 留下的 ${exampleCount(chatMode)} 条问答 · 访客不能提问` : surface === 'examples' ? `和 ${CHAT_LABELS[chatMode]} 对话，每一问一答自动保存给访客 · ${exampleCount(chatMode)}/${MAX_TURNS_PER_MODE}` : chatMode === 'agent_v3' ? '公开研究、原文引用与会话追问 · 写操作需确认' : '规划并调用研究、账户与量化工具'}</span></div><div className="fact-mode">{isGuest ? '已禁用' : '证据优先'}</div></div>
         <div className="chat-mode-bar">
-          <div className="chat-mode-switch" aria-label="聊天模式">{(['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => <button key={mode} type="button" className={chatView === 'chat' && chatMode === mode ? 'active' : ''} aria-pressed={chatView === 'chat' && chatMode === mode} onClick={() => { setChatMode(mode); setChatView('chat') }}>{CHAT_LABELS[mode]}{isGuest && ` · ${groups.filter(group => group.answers[mode]).length}`}</button>)}<button type="button" className={chatView === 'pairs' ? 'active' : ''} aria-pressed={chatView === 'pairs'} onClick={() => setChatView('pairs')}>{isGuest ? `对比 · ${groups.length}` : `访客示例 ${groups.length}/${MAX_GROUPS}`}</button></div>
+          <div className="chat-mode-switch" aria-label="聊天模式">{(isGuest ? (['examples'] as ChatSurface[]) : (['chat', 'examples'] as ChatSurface[])).flatMap(target => (['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => <button key={`${target}-${mode}`} type="button" className={surface === target && chatMode === mode ? 'active' : ''} aria-pressed={surface === target && chatMode === mode} onClick={() => { setChatMode(mode); setSurface(target) }}>{SURFACE_LABELS[target][mode]}{target === 'examples' && ` · ${exampleCount(mode)}`}</button>))}</div>
+          {!isGuest && surface === 'examples' && <button type="button" className="clear-examples" disabled={chatBusy || exampleCount(chatMode) === 0} onClick={() => void clearTurns(chatMode)}>一键删除</button>}
           <label className="web-consent" title="仅在内部工具证据不足时允许当前 Agent 尝试网页搜索；服务器也必须启用该能力"><input type="checkbox" checked={!isGuest && allowAgentWeb} disabled={chatBusy || isGuest} onChange={event => setAllowAgentWeb(event.target.checked)}/><span>允许网页兜底</span></label>
         </div>
         <div className="context-bar"><span>当前上下文</span><strong>{chatContext}</strong></div>
-        {chatView === 'pairs' ? pairsPanel : <>
         <div className="message-list" ref={messageListRef} aria-live="polite">
-          {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>{groups.length ? `所有者把同一个问题同时交给 Agent V2 和 Agent V3 回答，点上方按钮切换查看，“对比”并排显示两边。每条标有提问和回答的时间，数字属于那一天。访客不能提问，请求不会发送给 Agent 或外部数据服务。` : '访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。'}</span></div>}
-          {visibleMessages.map(message => <MessageBubble key={message.id} message={message} isGuest={isGuest} chatBusy={chatBusy} resolveConfirmation={resolveConfirmation}/>)}
-          {chatBusy && busyMode === chatMode && <div className="message assistant progress-message"><div className="typing"><i/><i/><i/></div><span>{chatProgress || '分析中…'}</span></div>}
+          {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>{turns.length ? '这里是所有者和两个 Agent 的真实问答，每条标有提问和回答的时间，数字属于那一天。点上方按钮切换 Agent。访客不能提问，请求不会发送给 Agent 或外部数据服务。' : '访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。'}</span></div>}
+          {!isGuest && surface === 'examples' && turnsNote && <div className="examples-note">{turnsNote}</div>}
+          {visibleMessages.map(message => <MessageBubble key={message.id} message={message} isGuest={isGuest} chatBusy={chatBusy} resolveConfirmation={resolveConfirmation} onRemove={!isGuest && surface === 'examples' && message.role === 'assistant' && message.exampleId ? () => void removeTurn(message.exampleId as string) : undefined}/>)}
+          {chatBusy && busyMode === chatMode && busySurface === surface && <div className="message assistant progress-message"><div className="typing"><i/><i/><i/></div><span>{chatProgress || '分析中…'}</span></div>}
         </div>
         <div className="quick-actions">{(chatMode === 'agent_v3' ? ['什么是自由现金流？', '查询 NVDA 最近收盘价和来源', '查阅 NVIDIA 最新 10-K 的供应链风险原文'] : ['比较 NVDA 和 AMD 的风险', '分析 AAPL 的估值', '回测 NVDA 动量策略']).map((suggestion, index) => <button type="button" disabled={isGuest} key={suggestion} onClick={() => setChatInput(suggestion)}>{chatMode === 'agent_v3' ? ['知识问答', '行情来源', '财报原文'][index] : ['风险比较', '估值研究', '策略回测'][index]}</button>)}</div>
         <form className="chat-composer" onSubmit={handleChat}><textarea aria-label="向 AI 提问" value={chatInput} disabled={isGuest} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(chatInput) } }} placeholder={isGuest ? '访客模式下 AI 与付费工具已禁用' : chatMode === 'agent_v3' ? '让 Agent V3 查询行情、研究或查阅原文…' : '让 Agent V2 研究、比较或运行实验…'} rows={2}/><button type="submit" disabled={isGuest || chatBusy || !chatInput.trim()}>发送</button></form>
-        </>}
       </aside></div>
   </main>;
 }
