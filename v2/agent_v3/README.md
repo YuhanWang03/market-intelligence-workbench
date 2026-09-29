@@ -3,7 +3,7 @@
 Agent V3 是 Market Intelligence Workbench 的 LangGraph 智能体运行时。它面向复杂、多步骤、需要持久化、恢复、严格依赖控制和审计的研究任务，通过显式状态图组织分类、计划、执行、搜索、合成、验证、修复、辩论与确认节点。
 
 > [!WARNING]
-> **本系统仍在调整过程中，正式测评尚未完成。** 当前的单元测试、契约测试、离线演示、live smoke、acceptance 和 synthetic quality 脚本主要用于开发验证。它们不是统一真实数据集上的正式质量测评，也不能证明 V3 比 V2 更准确或更适合投资决策。
+> **已完成与 Agent V2 的统一条件对比测评**，结论见仓库根目录 README 文首和 [`v2/agent_bench/README.md`](../agent_bench/README.md)：两者水平相当，V3 强在字段级证据与口径，V2 强在覆盖面。当前的单元测试、契约测试、离线演示、live smoke、acceptance 和 synthetic quality 脚本用于开发验证，不是质量测评。
 
 ## 设计目标
 
@@ -127,7 +127,7 @@ POST /api/agent-v3/runs/{run_id}/confirm   # {"session_id": ..., "approve": true
 
 `quality_eval.py` 使用固定合成证据检查部分输出约束，`live_smoke.py` 检查真实运行链路是否可用，`acceptance.py` 和其他 acceptance 脚本检查特定业务路径。`debate_trial.py` 对同一批研究题分别在开启与关闭对抗审阅时各跑一次，记录 debate 节点是否执行、跳过原因、异议内容与修订稿是否通过校验（结果中的 `synthesis.debate` 字段）；它需要真实模型，产出的是观察记录而不是分数。这些工具的存在不表示正式测评已经完成；部分脚本也在源码中明确声明其结果不是质量分数。
 
-正式评估 V3 时，应与 V2 使用完全相同的模型、问题集、数据快照、搜索权限、工具预算、超时设置和评分标准，并额外衡量 checkpoint 恢复、依赖失败传播、写操作确认和长任务取消。当前尚未发布这种受控对比报告。
+与 V2 的对比测评在 [`v2/agent_bench/`](../agent_bench/README.md) 完成，两者使用相同的模型、问题集、冻结数据、搜索权限、工具预算、超时设置和评分标准。checkpoint 恢复、依赖失败传播、写操作确认和长任务取消只有单元测试和故障注入题覆盖，尚未作为独立指标纳入测评。
 
 ## 当前限制
 

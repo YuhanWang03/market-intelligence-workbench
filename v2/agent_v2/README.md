@@ -3,7 +3,7 @@
 Agent V2 是 Market Intelligence Workbench 当前默认的证据优先执行管线。它负责理解请求、选择能力、执行工具、汇总证据、生成回答并校验引用与数字，可由 Web 工作台和 Telegram 共同调用。
 
 > [!WARNING]
-> **本系统仍在调整过程中，正式测评尚未完成。** 目录中的单元测试、契约测试、离线固定样例和 benchmark/quality 工具是开发与回归基础设施，不代表已经完成真实场景下的模型质量测评，也不构成投资系统有效性证明。
+> **已完成与 Agent V3 的统一条件对比测评**，结论见仓库根目录 README 文首和 [`v2/agent_bench/README.md`](../agent_bench/README.md)。目录中的单元测试、契约测试、离线固定样例和 benchmark/quality 工具是开发与回归基础设施，不构成投资系统有效性证明。
 
 ## 设计目标
 
@@ -96,16 +96,16 @@ FINANCIAL_DATASETS_API_KEY
 poetry run pytest v2/agent_v2/test_agent_v2.py v2/agent_v2/eval/test_benchmark.py -q
 ```
 
-仓库还保留 `run_eval.py`、`run_benchmark.py` 和 `eval/quality.py` 等开发工具。这些工具可用于离线回归、固定用例检查或未来的评测实验，但当前没有一份经统一实验条件运行、人工复核并正式发布的 Agent V2 测评报告。
+仓库还保留 `run_eval.py`、`run_benchmark.py` 和 `eval/quality.py` 等开发工具，用于离线回归和固定用例检查。与 V3 的正式对比测评在 [`v2/agent_bench/`](../agent_bench/README.md) 完成，`eval/quality.py` 的细则裁判被它原样复用。
 
-正式测评至少应固定：
+该测评固定了以下条件：
 
 1. 模型版本、温度和提示词版本。
 2. 行情与研究数据快照及其时间点。
 3. 开发集、隐藏测试集和评分标准。
 4. 每题工具调用、搜索、token 和时间预算。
-5. 引用正确性、事实准确性、完整性、延迟、费用与失败恢复指标。
-6. 独立人工盲审和可复现的原始运行记录。
+5. 引用正确性、评分细则符合度与成对盲评；延迟、费用与失败恢复未作为指标纳入。
+6. 人工复核（20 对回答）和可复现的原始运行记录。
 
 ## 当前限制
 
@@ -117,4 +117,4 @@ poetry run pytest v2/agent_v2/test_agent_v2.py v2/agent_v2/eval/test_benchmark.p
 
 ## 与 Agent V3 的关系
 
-Agent V2 是框架无关、较轻量的默认执行路径；Agent V3 使用 LangGraph 构建显式状态图和可恢复任务。两者共享部分能力和证据语义，但执行器彼此独立。当前尚未完成统一条件下的正式对比测评，因此不应根据版本号推断 V3 一定优于 V2。
+Agent V2 是框架无关、较轻量的默认执行路径；Agent V3 使用 LangGraph 构建显式状态图和可恢复任务。两者共享部分能力和证据语义，但执行器彼此独立。统一条件下的对比测评表明两者水平相当：V2 强在覆盖面（账户、关注列表、调查、申报内容），V3 强在字段级证据与口径。版本号不表示优劣。
