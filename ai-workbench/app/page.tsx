@@ -132,6 +132,17 @@ async function waitForChatJob(jobId: string): Promise<ChatApiResponse> { const d
 function agentSessionId(version: 'v2' | 'v3') { const key = `workbench:agent-${version}-session`; const stored = sessionStorage.getItem(key); if (stored) return stored; const id = `workbench-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`; sessionStorage.setItem(key, id); return id }
 function waitWithSignal(ms: number, signal: AbortSignal) { return new Promise<void>((resolve, reject) => { const timer = window.setTimeout(resolve, ms); signal.addEventListener('abort', () => { window.clearTimeout(timer); reject(new DOMException('Request cancelled', 'AbortError')) }, { once: true }) }) }
 async function waitForAgentJob(initial: AgentV2Job, signal: AbortSignal, onProgress: (job: AgentV2Job) => void, version: 'v2' | 'v3'): Promise<AgentV2Response> { let job = initial; const deadline = Date.now() + 15 * 60_000; while (Date.now() < deadline) { if (job.status === 'completed' && job.result) return job.result; if (job.status === 'failed') throw new Error(job.error || 'Agent 后台任务失败'); onProgress(job); await waitWithSignal(1000, signal); job = await getAgentV2Job(job.job_id, signal, version) } throw new Error('Agent 后台任务超过 15 分钟仍未完成') }
+/** The published examples, one column per agent; a question published for only one agent is flagged so the pair can be completed. */
+function ExampleManager({ examples, note, onRemove, onClose }: { examples: AgentExample[]; note: string; onRemove: (id: string) => void; onClose: () => void }) {
+  const byMode = (mode: ChatMode) => examples.filter(item => item.mode === mode).sort((a, b) => Date.parse(a.asked_at) - Date.parse(b.asked_at));
+  const asked = (mode: ChatMode) => new Set(byMode(mode).map(item => item.question.trim()));
+  const unpaired = examples.filter(item => !asked(item.mode === 'agent_v2' ? 'agent_v3' : 'agent_v2').has(item.question.trim())).length;
+  return <section className="example-manager" aria-label="访客示例">
+    <header><strong>访客示例 {examples.length}/20</strong><span>{unpaired ? `${unpaired} 条只在一个 Agent 下发布过` : examples.length ? '两个 Agent 的问题已配对' : '还没有发布任何示例'}{note && ` · ${note}`}</span><button type="button" onClick={onClose} aria-label="关闭">×</button></header>
+    <div className="example-columns">{(['agent_v2', 'agent_v3'] as ChatMode[]).map(mode => { const other = asked(mode === 'agent_v2' ? 'agent_v3' : 'agent_v2'); const rows = byMode(mode); return <div key={mode}><h4>{CHAT_LABELS[mode]}<small>{rows.length} 条</small></h4>{rows.length === 0 && <p>尚未发布。切到 {CHAT_LABELS[mode]} 提问后，在回答下点“发布为访客示例”。</p>}<ol>{rows.map(item => <li key={item.id} className={other.has(item.question.trim()) ? '' : 'unpaired'}><span title={item.question}>{item.question}</span><time>{formatClock(new Date(item.answered_at))}</time>{!other.has(item.question.trim()) && <em>另一边未发布</em>}<button type="button" onClick={() => onRemove(item.id)}>移除</button></li>)}</ol></div> })}</div>
+  </section>;
+}
+
 function uniqueEvidence(items: AgentV2Evidence[]) { const seen = new Set<string>(); return items.filter(item => { const key = item.id || `${item.source_url}:${item.claim}`; if (seen.has(key)) return false; seen.add(key); return true }) }
 
 function AgentAnswer({ text, evidence = [], messageId }: { text: string; evidence?: AgentV2Evidence[]; messageId: number }) {
@@ -361,6 +372,7 @@ export default function Home() {
   const [busyMode, setBusyMode] = useState<ChatMode | null>(null);
   const [examples, setExamples] = useState<AgentExample[]>([]);
   const [examplesNote, setExamplesNote] = useState('');
+  const [examplesOpen, setExamplesOpen] = useState(false);
   // Guests see the owner's published answers as a conversation; the owner sees the same list to manage it.
   const loadExamples = useCallback(async (role: AccessStatus['role']) => {
     try { setExamples(await fetchAgentExamples()) }
@@ -650,12 +662,14 @@ export default function Home() {
         <div className="chat-header"><div className="ai-avatar">AI</div><div><strong>{CHAT_LABELS[chatMode]}</strong><span>{isGuest ? '访客模式不执行模型或付费工具 · 切换按钮查看另一个 Agent 的示例' : chatMode === 'agent_v3' ? '公开研究、原文引用与会话追问 · 写操作需确认' : '规划并调用研究、账户与量化工具'}</span></div><div className="fact-mode">{isGuest ? '已禁用' : '证据优先'}</div></div>
         <div className="chat-mode-bar">
           <div className="chat-mode-switch" aria-label="聊天模式"><button type="button" className={chatMode === 'agent_v2' ? 'active' : ''} aria-pressed={chatMode === 'agent_v2'} onClick={() => setChatMode('agent_v2')}>Agent V2{isGuest && ` · ${examples.filter(item => item.mode === 'agent_v2').length}`}</button><button type="button" className={chatMode === 'agent_v3' ? 'active' : ''} aria-pressed={chatMode === 'agent_v3'} onClick={() => setChatMode('agent_v3')}>Agent V3{isGuest && ` · ${examples.filter(item => item.mode === 'agent_v3').length}`}</button></div>
+          {!isGuest && <button type="button" className={`examples-button ${examplesOpen ? 'active' : ''}`} aria-expanded={examplesOpen} onClick={() => setExamplesOpen(open => !open)} title="已发布给访客的问答示例">示例 {examples.length}/20</button>}
           <label className="web-consent" title="仅在内部工具证据不足时允许当前 Agent 尝试网页搜索；服务器也必须启用该能力"><input type="checkbox" checked={!isGuest && allowAgentWeb} disabled={chatBusy || isGuest} onChange={event => setAllowAgentWeb(event.target.checked)}/><span>允许网页兜底</span></label>
         </div>
         <div className="context-bar"><span>当前上下文</span><strong>{chatContext}</strong></div>
+        {!isGuest && examplesOpen && <ExampleManager examples={examples} note={examplesNote} onRemove={id => void unpublishExample(id)} onClose={() => setExamplesOpen(false)}/>}
         <div className="message-list" ref={messageListRef} aria-live="polite">
           {isGuest && <div className="guest-chat-notice"><strong>AI 功能仅限所有者</strong><span>{examples.length ? `所有者用同一组问题分别问了 Agent V2 和 Agent V3，点上方按钮切换查看。每条标有提问和回答的时间，数字属于那一天。访客不能提问，请求不会发送给 Agent 或外部数据服务。` : '访客可以浏览已发布的数据快照，但请求不会发送给 Agent V2、Agent V3 或外部数据服务。'}</span></div>}
-          {!isGuest && (examples.length > 0 || examplesNote) && <details className="example-manager"><summary>访客示例（{examples.length}/20）{examplesNote && <em>{examplesNote}</em>}</summary><ol>{examples.map(item => <li key={item.id}><span>{CHAT_LABELS[item.mode]} · {formatClock(new Date(item.answered_at))} · {item.question}</span><button type="button" onClick={() => void unpublishExample(item.id)}>移除</button></li>)}</ol></details>}
+          {!isGuest && examplesNote && !examplesOpen && <div className="examples-note">{examplesNote}</div>}
           {(isGuest ? [{ id: OPENER_ID[chatMode], role: 'assistant' as const, mode: chatMode, ...CHAT_OPENERS[chatMode] }, ...examples.filter(item => item.mode === chatMode).sort((a, b) => Date.parse(a.asked_at) - Date.parse(b.asked_at)).flatMap<ChatMessage>((item, index) => [
             { id: -(index * 2 + 2), role: 'user', text: item.question, mode: item.mode, sentAt: Date.parse(item.asked_at) },
             { id: -(index * 2 + 3), role: 'assistant', text: item.answer, mode: item.mode, sentAt: Date.parse(item.answered_at), agent: item.agent as unknown as AgentChatMeta, evidence: item.evidence, meta: `示例问答 · 发布于 ${new Date(item.published_at).toLocaleString('zh-CN')} · ${item.meta}`, exampleId: item.id },
