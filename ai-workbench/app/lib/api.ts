@@ -147,15 +147,16 @@ export type AgentV2Response = {
 
 export type AgentPendingMutation = { operation: string; payload: Record<string, unknown>; description: string };
 
-/** An answered question the owner published for guests; times are ISO instants. */
-export type AgentExample = { id: string; question: string; mode: 'agent_v2' | 'agent_v3'; asked_at: string; answered_at: string; answer: string; meta: string; agent: Record<string, unknown>; evidence: AgentV2Evidence[]; published_at: string };
+/** One published question with both agents' answers; times are ISO instants. */
+export type AgentExampleAnswer = { answered_at: string; answer: string; meta: string; agent: Record<string, unknown>; evidence: AgentV2Evidence[] };
+export type AgentExampleGroup = { id: string; question: string; asked_at: string; published_at: string; answers: Partial<Record<'agent_v2' | 'agent_v3', AgentExampleAnswer>> };
 
-export async function fetchAgentExamples(): Promise<AgentExample[]> {
-  return apiJson<AgentExample[]>('/api/public/agent-examples');
+export async function fetchAgentExamples(): Promise<AgentExampleGroup[]> {
+  return apiJson<AgentExampleGroup[]>('/api/public/agent-examples');
 }
 
-export async function publishAgentExample(example: Omit<AgentExample, 'id' | 'published_at'>): Promise<AgentExample> {
-  return rawJson<AgentExample>('/api/public/agent-examples', { method: 'POST', body: JSON.stringify(example) });
+export async function publishAgentExample(group: Omit<AgentExampleGroup, 'id' | 'published_at'>): Promise<AgentExampleGroup> {
+  return rawJson<AgentExampleGroup>('/api/public/agent-examples', { method: 'POST', body: JSON.stringify(group) });
 }
 
 export async function unpublishAgentExample(id: string): Promise<void> {
