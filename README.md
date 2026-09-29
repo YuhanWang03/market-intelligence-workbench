@@ -81,31 +81,52 @@
 ## 系统架构
 
 ```mermaid
-flowchart LR
-    U[浏览器] --> N[Nginx]
-    T[Telegram] --> B[Bot / 调度器]
+flowchart TB
+    subgraph ENTRY [入口层]
+        direction LR
+        U[浏览器] --> N[Nginx · 按路径分发]
+        N -- / --> F[Vinext + React 前端 :3000]
+        N -- /api/ --> API[FastAPI 主后端 :8100]
+        N -- /api/agent-v3/ --> V3API[Agent V3 独立服务 :8104]
+        T[Telegram] --> B[Bot]
+    end
 
-    N --> F[Vinext + React 前端]
-    N --> API[FastAPI 主后端]
-    N --> V3API[Agent V3 独立服务]
+    subgraph AGENTS [Agent 层]
+        direction LR
+        V2[Agent V2 编排器]
+        V3[Agent V3 LangGraph 状态图]
+    end
 
-    F --> API
-    F --> V3API
-    B --> V2[Agent V2 Core]
-    B --> V3[Agent V3 Graph]
+    API -- 进程内 --> V2
+    B -- 进程内 --> V2
+    V3API -- 进程内 --> V3
+    B -- HTTP :8104 --> V3API
+    API -. 访客：只读快照 .-> SNAP[(公开快照库)]
 
-    API --> V2
-    V3API --> V3
+    subgraph DATA [数据层]
+        direction LR
+        CAP[共享能力目录与适配器 · 统一证据格式]
+        EXT[外部数据源<br/>Alpaca · yfinance · SEC EDGAR · FRED · ARK CSV · Yahoo · Tavily]
+        LOCAL[(本地库<br/>盯盘记录 · 13F 跟踪 · ARK 快照 · 关注列表与提醒 · 研究与实验结果)]
+        SCH[调度器 · 定时任务<br/>13F / ARK / 财报 / 资金流 / 组合风险 / 异动监控]
+        STR[行情流服务 · 交易时段每分钟<br/>价格提醒触发 · 盘中异动扫描]
+    end
 
-    V2 --> CAP[共享能力目录与适配器]
+    V2 --> CAP
     V3 --> CAP
-    CAP --> DATA[行情 / 财务 / SEC / 新闻 / 宏观]
-    CAP --> STATE[组合 / 告警 / 研究 / 实验数据]
-
-    V2 --> DB[(SQLite / Ledgers)]
-    V3 --> V3DB[(Checkpoints / Sessions / Jobs)]
-    API --> DB
+    CAP --> EXT
+    CAP --> LOCAL
+    SCH -- 采集写入 --> LOCAL
+    STR -- 写入 --> LOCAL
+    SCH -. 从外部源采集 .-> EXT
+    STR -- 推送提醒 --> T
+    V2 --> V2DB[(V2 会话 / 记忆 / ledger)]
+    V3 --> V3DB[(V3 checkpoint / 会话 / 任务)]
+    V2 --> COST[(成本账本 · 两个 Agent 共用)]
+    V3 --> COST
 ```
+
+三层的关系：入口层只做分发，浏览器的所有请求都经 Nginx 按路径送到三个服务，Telegram 经 Bot 进入；Agent 层里 V2 在主后端和 Bot 进程内运行，V3 只有一个进程，网页和 Bot 都通过它的 HTTP 接口调用；数据层里两个 Agent 只通过共享能力目录取数，其中盯盘记录、13F 跟踪库、ARK 快照这类数据不是提问时现取的，而是调度器和行情流服务提前采好写进本地库的。
 
 生产部署中，主后端和 Agent V3 使用不同的进程与端口。Agent V3 没有独立网页，它通过现有工作台和 Bot 被调用。
 
